@@ -2,7 +2,6 @@
 name = "Practical-Tools"
 description = "To enhance the usability of ComfyUI, optimizations and integrations have been implemented for several commonly used nodes."
 version = "1.0.0"
-license = "MIT"
 
 [project.urls]
 Repository = "https://github.com/wenchengxiang/ComfyUI-WCXnodes"
@@ -11,6 +10,3 @@ Repository = "https://github.com/wenchengxiang/ComfyUI-WCXnodes"
 [tool.comfy]
 PublisherId = "wcx"
 DisplayName = "ComfyUI-WCXnodes"
-Icon = ""
-includes = []
-# "requires-comfyui" = ">=1.0.0"  # ComfyUI version compatibility
