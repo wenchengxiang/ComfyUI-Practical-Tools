@@ -1,5 +1,5 @@
 [project]
-name = "ComfyUI-WCXnodes"
+name = "Practical-Tools"
 description = "To enhance the usability of ComfyUI, optimizations and integrations have been implemented for several commonly used nodes."
 version = "1.0.260808"
 
