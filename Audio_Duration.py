@@ -20,7 +20,7 @@ class AudioDuration:
     RETURN_TYPES = ("INT",)
     RETURN_NAMES = ("duration_ms",)
     FUNCTION = "get_duration"
-    CATEGORY = "WCXnodes/utils"
+    CATEGORY = "Practical-Tools/audio"
 
     def get_duration(self, audio):
         waveform = audio["waveform"]

@@ -12,7 +12,7 @@ class ImageBatchInterleave:
 
     RETURN_TYPES = ("IMAGE",)
     FUNCTION = "reorder_batch"
-    CATEGORY = "WCXnodes/Image"
+    CATEGORY = "Practical-Tools/Image"
 
     def reorder_batch(self, images, n_groups):
         # 获取当前Batch的图片总数

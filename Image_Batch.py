@@ -23,7 +23,7 @@ class wcx_ImageBatch:
     RETURN_TYPES = ("IMAGE",)
     RETURN_NAMES = ("image",)
     FUNCTION = "image_batch"
-    CATEGORY = "WCXnodes/Image"
+    CATEGORY = "Practical-Tools/Image"
 
     def _check_image_dimensions(self, tensors, names):
         reference_dimensions = tensors[0].shape[1:]  # Ignore batch dimension

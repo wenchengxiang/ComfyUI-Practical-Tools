@@ -17,7 +17,7 @@ class ImageBatchInterleaveSplit:
     OUTPUT_IS_LIST = (True,) 
     
     FUNCTION = "reorder_and_split_batch"
-    CATEGORY = "WCXnodes/Image"
+    CATEGORY = "Practical-Tools/Image"
 
     def reorder_and_split_batch(self, images, n_groups):
         total_images = images.shape[0]

@@ -15,7 +15,7 @@ class LoraLoadWithTrigger:
     RETURN_TYPES = ('STRING', "FLOAT", "STRING")
     RETURN_NAMES = ("lora_name", "strength", "trigger_words")
     FUNCTION = "extract_lora_info"
-    CATEGORY = "WCXnodes/Lora"
+    CATEGORY = "Practical-Tools/Lora"
     OUTPUT_NODE = True
 
     def extract_lora_info(self, lora_name, strength):

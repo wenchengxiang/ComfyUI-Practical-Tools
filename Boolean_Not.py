@@ -9,7 +9,7 @@ class wcx_BooleanNot:
         }
 
     FUNCTION = "execute"
-    CATEGORY = "WCXnodes/utils"
+    CATEGORY = "Passthrough/utils"
 
     RETURN_TYPES = ("BOOLEAN", )
     RETURN_NAMES = ("取反结果", )

@@ -69,7 +69,7 @@ class wcx_LoadImagesFromDirBatch:
 
     RETURN_TYPES = ("IMAGE", "MASK", "INT")
     FUNCTION = "load_images"
-    CATEGORY = "WCXnodes/Image"
+    CATEGORY = "Practical-Tools/Image"
 
     @classmethod
     def IS_CHANGED(cls, **kwargs):

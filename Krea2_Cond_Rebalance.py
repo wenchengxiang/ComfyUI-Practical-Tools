@@ -77,7 +77,7 @@ class Krea2CondRebalance:
     RETURN_TYPES = ("CONDITIONING",)
     RETURN_NAMES = ("conditioning",)
     FUNCTION = "main"
-    CATEGORY = "WCXnodes/utils"
+    CATEGORY = "Practical-Tools/Conditioning"
 
     def main(self, conditioning, multiplier, per_layer_weights=None):
         plw = _parse_per_layer(per_layer_weights) if per_layer_weights else None

@@ -27,7 +27,7 @@ class wcx_CreateList:
     RETURN_NAMES = ("list",)
     OUTPUT_IS_LIST = (True,)
     FUNCTION = "create_list"
-    CATEGORY = "WCXnodes/utils"
+    CATEGORY = "Practical-Tools/utils"
 
     def create_list(self, **kwargs):
         output_list = []

@@ -14,7 +14,7 @@ class wcx_ImageBatchToImageList:
     RETURN_NAMES = ("图像",)
     OUTPUT_IS_LIST = (True,)
     FUNCTION = "doit"
-    CATEGORY = "WCXnodes/Image"
+    CATEGORY = "Practical-Tools/Image"
 
     def doit(self, 图像):
         # 1:1 还原原版：images = [image[i:i + 1, ...] for i in range(image.shape[0])]

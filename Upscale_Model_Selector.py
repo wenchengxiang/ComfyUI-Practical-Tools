@@ -16,7 +16,7 @@ class UpscaleModelSelector:
     RETURN_TYPES = ("STRING",)
     RETURN_NAMES = ("model_name",)
     FUNCTION = "output_name"
-    CATEGORY = "WCXnodes/utils"  # 放到你的自定义分类菜单下
+    CATEGORY = "Practical-Tools/utils"  # 放到你的自定义分类菜单下
 
     def output_name(self, model_name):
         # 用户在前端 UI 下拉菜单里选了什么字符串，这里就直接返回什么字符串

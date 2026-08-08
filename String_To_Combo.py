@@ -25,7 +25,7 @@ class StringToCombo:
     RETURN_TYPES = (ANY, )
     RETURN_NAMES = ("any", )
     FUNCTION = "convert"
-    CATEGORY = "WCXnodes/Conversion" 
+    CATEGORY = "Practical-Tools/utils" 
 
     def convert(self, text):
         # 100% 严格复刻原版运行行为：即使被逗号切分，也只返回单项文本字符串，确保下游能够完美读取

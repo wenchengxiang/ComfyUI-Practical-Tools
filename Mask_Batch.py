@@ -23,7 +23,7 @@ class wcx_MaskBatch:
     RETURN_TYPES = ("MASK",)
     RETURN_NAMES = ("masks",)
     FUNCTION = "mask_batch"
-    CATEGORY = "WCXnodes/mask"
+    CATEGORY = "Practical-Tools/Mask"
 
     def _check_mask_dimensions(self, tensors, names):
         dimensions = [tensor.shape[1:] for tensor in tensors]  # Exclude the batch dimension (if present)

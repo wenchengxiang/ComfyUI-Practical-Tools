@@ -63,7 +63,7 @@ class ImageTransformRotate:
 
     RETURN_TYPES = ("IMAGE",)
     FUNCTION = "node"
-    CATEGORY = "WCXnodes/utils"  # 归入统一的自定义路径
+    CATEGORY = "Practical-Tools/Image"  # 归入统一的自定义路径
 
     def node(self, images, angle, expand, SSAA, method):
         height, width = images[0, :, :, 0].shape

@@ -36,7 +36,7 @@ class ImageCropByMask:
         
     RETURN_TYPES = ('IMAGE', 'IMAGE_BOUNDS')
     FUNCTION = 'bounded_image_crop_with_mask'
-    CATEGORY = 'WCXnodes/utils'
+    CATEGORY = 'Practical-Tools/Image'
 
     def bounded_image_crop_with_mask(self, image, mask, padding_left, padding_right, padding_top, padding_bottom):
         image = image.unsqueeze(0) if image.dim() == 3 else image
@@ -102,7 +102,7 @@ class ImageUncropByBound:
         
     RETURN_TYPES = ('IMAGE',)
     FUNCTION = 'bounded_image_blend'
-    CATEGORY = 'WCXnodes/utils'
+    CATEGORY = 'Practical-Tools/Image'
 
     def bounded_image_blend(self, target, target_bounds, source, blend_factor, feathering):
         target = target.unsqueeze(0) if target.dim() == 3 else target

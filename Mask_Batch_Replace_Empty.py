@@ -14,7 +14,7 @@ class MaskBatchReplaceEmpty:
 
     RETURN_TYPES = ("MASK",)
     FUNCTION = "replace_empty_masks"
-    CATEGORY = "WCXnodes/mask"
+    CATEGORY = "Practical-Tools/Mask"
 
     def replace_empty_masks(self, masks):
         if not isinstance(masks, torch.Tensor):

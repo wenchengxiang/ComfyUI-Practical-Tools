@@ -14,7 +14,7 @@ class MaskFromBatch:
     RETURN_TYPES = ("MASK",)
     RETURN_NAMES = ("MASK",)
     FUNCTION = "execute"
-    CATEGORY = "WCXnodes/mask"  # 匹配你的节点包分类
+    CATEGORY = "Practical-Tools/Mask"  # 匹配你的节点包分类
 
     def execute(self, mask, start, length):
         # 兼容处理非 Batch 的单张 Mask

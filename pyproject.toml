@@ -1,12 +1,12 @@
 [project]
 name = "Practical-Tools"
 description = "To enhance the usability of ComfyUI, optimizations and integrations have been implemented for several commonly used nodes."
-version = "1.0.260808"
+version = "1.0.2608081"
 
 [project.urls]
-Repository = "https://github.com/wenchengxiang/ComfyUI-WCXnodes"
+Repository = "https://github.com/wenchengxiang/ComfyUI-Practical-Tools"
 #  Used by Comfy Registry https://registry.comfy.org
 
 [tool.comfy]
 PublisherId = "wcx"
-DisplayName = "ComfyUI-WCXnodes"
+DisplayName = "ComfyUI-Practical-Tools"

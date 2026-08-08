@@ -37,7 +37,7 @@ class RandomIntegerNode:
     RETURN_TYPES = ("INT",)
     RETURN_NAMES = ("int_value",)
     FUNCTION = "generate_random_int"
-    CATEGORY = "WCXnodes/utils"
+    CATEGORY = "Practical-Tools/utils"
 
     def generate_random_int(self, min_value, max_value, seed):
         # 使用种子确保每次运行可复现（或由控制按钮随机）

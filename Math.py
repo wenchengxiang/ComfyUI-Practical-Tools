@@ -34,7 +34,7 @@ class SimpleMath:
 
     RETURN_TYPES = ("INT", "FLOAT", )
     FUNCTION = "execute"
-    CATEGORY = "WCXnodes/utils"
+    CATEGORY = "Practical-Tools/utils"
 
     def execute(self, value, a = 0.0, b = 0.0, c = 0.0, d = 0.0):
         import ast

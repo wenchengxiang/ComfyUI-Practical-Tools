@@ -23,7 +23,7 @@ class AnyRerouter():
     RETURN_TYPES = (anything,)
     RETURN_NAMES = ('any_value',)
     FUNCTION = 'any_rerouter'
-    CATEGORY = 'WCXnodes/utils'
+    CATEGORY = 'Practical-Tools/Passthrough'
 
     def any_rerouter(self, any_value):
         return (any_value,)

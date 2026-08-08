@@ -22,7 +22,7 @@ class MaxResolutionFilter:
     RETURN_TYPES = ("IMAGE",)
     RETURN_NAMES = ("IMAGE",)
     FUNCTION = "filter_max_resolution"
-    CATEGORY = "WCXnodes/Image"
+    CATEGORY = "Practical-Tools/Image"
 
     def filter_max_resolution(self, image_list):
         if not image_list or len(image_list) == 0:

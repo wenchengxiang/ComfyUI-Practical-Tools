@@ -53,7 +53,7 @@ for class_name, type_name, socket_name, display_name in PASSTHROUGH_CONFIGS:
             "RETURN_TYPES": (type_name,),
             "RETURN_NAMES": (socket_name,),
             "FUNCTION": "doit",
-            "CATEGORY": "WCXnodes/Passthrough",
+            "CATEGORY": "Practical-Tools/Passthrough",
             "doit": lambda self, **kwargs: (next(iter(kwargs.values())),) if kwargs and next(iter(kwargs.values())) is not None else (None,)
         }
     )
@@ -77,7 +77,7 @@ class wcx_CondPairPassthrough:
     RETURN_TYPES = ("CONDITIONING", "CONDITIONING")
     RETURN_NAMES = ("conditioning", "conditioning") # 核心修复：输出端命名完美对齐截图
     FUNCTION = "doit"
-    CATEGORY = "WCXnodes/Passthrough"
+    CATEGORY = "Practical-Tools/Passthrough"
 
     # 配合前端接口，将传入的两个条件无损打包输出
     def doit(self, conditioning_1=None, conditioning_2=None):
@@ -122,7 +122,7 @@ class wcx_AnyPassthrough:
     RETURN_TYPES = (any_typ,)
     RETURN_NAMES = ("any_output",)
     FUNCTION = "doit"
-    CATEGORY = "WCXnodes/Passthrough"
+    CATEGORY = "Practical-Tools/Passthrough"
 
     def doit(self, any_input=None):
         return (any_input,)

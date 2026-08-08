@@ -31,7 +31,7 @@ class wcx_MaskFillHoles:
     RETURN_TYPES = ("MASK",)
     RETURN_NAMES = ("遮罩",)       # 保持中英文输出命名习惯的一致性
     FUNCTION = "fill_holes"
-    CATEGORY = "WCXnodes/mask"     # 统一归入 WCX 节点树下的 mask 分类
+    CATEGORY = "Practical-Tools/Mask"     # 统一归入 WCX 节点树下的 mask 分类
 
     def fill_holes(self, 遮罩):
         # 针对单张 MASK 或 MASK 批处理（Batch）进行遍历处理

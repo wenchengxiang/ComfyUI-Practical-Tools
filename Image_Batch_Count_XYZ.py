@@ -16,7 +16,7 @@ class ImageBatchCountXYZ:
     RETURN_TYPES = ("INT", "INT", "INT")
     RETURN_NAMES = ("x_black", "y_white", "z_black")
     FUNCTION = "count_images"
-    CATEGORY = "WCXnodes/utils"
+    CATEGORY = "Practical-Tools/Image"
 
     def count_images(self, images, threshold):
         # 获取批次大小

@@ -21,7 +21,7 @@ class wcx_MaskBatchToMaskList:
     RETURN_NAMES = ("遮罩",)
     OUTPUT_IS_LIST = (True,)
     FUNCTION = "doit"
-    CATEGORY = "WCXnodes/mask"
+    CATEGORY = "Practical-Tools/Mask"
 
     # 1:1 还原原版形参 doit(self, masks) 逻辑，不做多余的形参默认值改动
     def doit(self, 遮罩):
@@ -50,7 +50,7 @@ class wcx_MaskListToMaskBatch:
     RETURN_TYPES = ("MASK",)
     RETURN_NAMES = ("遮罩",)
     FUNCTION = "doit"
-    CATEGORY = "WCXnodes/mask"
+    CATEGORY = "Practical-Tools/Mask"
 
     def doit(self, 遮罩):
         if len(遮罩) == 0:

@@ -18,7 +18,7 @@ class wcx_ImageTile:
     RETURN_TYPES = ("IMAGE", "INT", "INT", "INT", "INT")
     RETURN_NAMES = ("切片批次", "切片宽度", "切片高度", "重叠横向", "重叠纵向")
     FUNCTION = "execute"
-    CATEGORY = "WCXnodes/image"
+    CATEGORY = "Practical-Tools/Image"
 
     def execute(self, 图像, 行数, 列数, 重叠比例, 重叠像素_横向, 重叠像素_纵向):
         h, w = 图像.shape[1:3]
@@ -81,7 +81,7 @@ class wcx_ImageUntile:
     RETURN_TYPES = ("IMAGE",)
     RETURN_NAMES = ("图像",)
     FUNCTION = "execute"
-    CATEGORY = "WCXnodes/image"
+    CATEGORY = "Practical-Tools/Image"
 
     def execute(self, 切片批次, 重叠横向, 重叠纵向, 行数, 列数):
         tile_h, tile_w = 切片批次.shape[1:3]

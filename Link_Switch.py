@@ -24,7 +24,7 @@ class LinkSwitch:
     RETURN_TYPES = (ANY,)
     RETURN_NAMES = ("输出",)
     FUNCTION = "LinkSwitch"
-    CATEGORY = "WCXnodes/utils"
+    CATEGORY = "Practical-Tools/utils"
 
     @classmethod
     def VALIDATE_INPUTS(cls, input_types):

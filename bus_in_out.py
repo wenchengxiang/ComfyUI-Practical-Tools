@@ -30,7 +30,7 @@ class WCXBusIn:
     RETURN_TYPES = ("WCX_BUS",) 
     RETURN_NAMES = ("总线束",)
     FUNCTION = "pack_bus"
-    CATEGORY = "WCXnodes/utils"
+    CATEGORY = "Practical-Tools/Passthrough"
 
     def pack_bus(self, **kwargs):
         # 使用字典打包，只打包有实际连线的数据，规避后端图截断引发的元组长度报错
@@ -58,7 +58,7 @@ class WCXBusOut:
     RETURN_TYPES = tuple(ANY for _ in range(25))
     RETURN_NAMES = tuple(f"输出_{i}" for i in range(1, 26))
     FUNCTION = "unpack_bus"
-    CATEGORY = "WCXnodes/utils"
+    CATEGORY = "Practical-Tools/Passthrough"
 
     def unpack_bus(self, 总线束=None):
         # 强壮的非空与类型校验

@@ -17,7 +17,7 @@ class ImageBlendMaskCenter:
     RETURN_TYPES = ("IMAGE",)
     RETURN_NAMES = ("IMAGE",)
     FUNCTION = "blend_by_center"
-    CATEGORY = "WCXnodes/Image"
+    CATEGORY = "Practical-Tools/Image"
 
     def blend_by_center(self, destination, source, mask):
         # 1. 输入预处理：统一转为 Tensor

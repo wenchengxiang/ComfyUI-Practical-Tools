@@ -12,7 +12,7 @@ class AudioPass:
     RETURN_TYPES = ("AUDIO",)
     RETURN_NAMES = ("audio",)
     FUNCTION = "pass_through"
-    CATEGORY = "WCXnodes/utils"
+    CATEGORY = "Practical-Tools/Passthrough"
 
     def pass_through(self, audio=None):
         if audio is None:
