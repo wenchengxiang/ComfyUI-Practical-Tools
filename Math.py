@@ -204,7 +204,7 @@ class SimpleMathDual:
     RETURN_TYPES = ("INT", "FLOAT", "INT", "FLOAT", )
     RETURN_NAMES = ("int_1", "float_1", "int_2", "float_2" )
     FUNCTION = "execute"
-    CATEGORY = "WCXnodes/utils"
+    CATEGORY = "Practical-Tools/utils"
 
     def execute(self, value_1, value_2, a = 0.0, b = 0.0, c = 0.0, d = 0.0):
         # 💡 核心修复：显式将 a, b, c, d 通过关键字参数全部透传给底层解析器实例

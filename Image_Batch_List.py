@@ -35,7 +35,7 @@ class wcx_ImageListToImageBatch:
     RETURN_TYPES = ("IMAGE",)
     RETURN_NAMES = ("图像",)
     FUNCTION = "doit"
-    CATEGORY = "WCXnodes/Image"
+    CATEGORY = "Practical-Tools/Image"
 
     def doit(self, 图像):
         if len(图像) == 0:
