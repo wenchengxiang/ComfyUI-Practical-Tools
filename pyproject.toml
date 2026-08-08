@@ -1,7 +1,7 @@
 [project]
 name = "Practical-Tools"
 description = "To enhance the usability of ComfyUI, optimizations and integrations have been implemented for several commonly used nodes."
-version = "1.0.2608081"
+version = "1.0.2"
 
 [project.urls]
 Repository = "https://github.com/wenchengxiang/ComfyUI-Practical-Tools"
