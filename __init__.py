@@ -36,4 +36,7 @@ for node_file in node_files:
         # 如果报错，打印在控制台，方便我们一眼看出是哪个节点内部写错了
         print(f"\n[WCX Nodes Error] 节点文件 {node_file} 加载失败，错误原因: {e}\n")
 
+# 告诉 ComfyUI 加载js文件夹所有 .js 前端文件
+WEB_DIRECTORY = "./js"
+
 __all__ = ['NODE_CLASS_MAPPINGS', 'NODE_DISPLAY_NAME_MAPPINGS']
