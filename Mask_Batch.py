@@ -50,5 +50,5 @@ NODE_CLASS_MAPPINGS = {
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "wcx_MaskBatch": "MaskBatch"
+    "wcx_MaskBatch": "Mask Batch"
 }

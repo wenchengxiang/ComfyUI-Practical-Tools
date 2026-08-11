@@ -26,7 +26,7 @@ class WCXImageComparer:
     OUTPUT_NODE = True 
     
     FUNCTION = "compare_images"
-    CATEGORY = "WCXnodes/image"
+    CATEGORY = "Practical-Tools/image"
     DESCRIPTION = "在前端提供可拖动滑动条/点击对比两张图像的功能，并可输出图像 A"
 
     def compare_images(self,

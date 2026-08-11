@@ -49,5 +49,5 @@ NODE_CLASS_MAPPINGS = {
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "wcx_ImageBatch": "ImageBatch"
+    "wcx_ImageBatch": "Image Batch"
 }
