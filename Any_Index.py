@@ -7,8 +7,10 @@ class AnyType(str):
         return "*"
 
 any_type = AnyType("*")
+lazy_options = {"lazy": True}
 
 
+# ============ 5 输入版本 ============
 class AnyIndexSimple:
     NAME = "Any Index Simple"
     CATEGORY = "Practical-Tools/utils"
@@ -20,11 +22,11 @@ class AnyIndexSimple:
                 "index": ("INT", {"default": 0, "min": 0, "max": 4, "step": 1}),
             },
             "optional": {
-                "value_0": (any_type, {"default": None}),
-                "value_1": (any_type, {"default": None}),
-                "value_2": (any_type, {"default": None}),
-                "value_3": (any_type, {"default": None}),
-                "value_4": (any_type, {"default": None}),
+                "value_0": (any_type, lazy_options),
+                "value_1": (any_type, lazy_options),
+                "value_2": (any_type, lazy_options),
+                "value_3": (any_type, lazy_options),
+                "value_4": (any_type, lazy_options),
             }
         }
 
@@ -42,6 +44,7 @@ class AnyIndexSimple:
         return (kwargs.get(key, None),)
 
 
+# ============ 15 输入版本 ============
 class AnyIndex:
     NAME = "Any Index"
     CATEGORY = "Practical-Tools/utils"
@@ -53,21 +56,21 @@ class AnyIndex:
                 "index": ("INT", {"default": 0, "min": 0, "max": 14, "step": 1}),
             },
             "optional": {
-                "value_0":  (any_type, {"default": None}),
-                "value_1":  (any_type, {"default": None}),
-                "value_2":  (any_type, {"default": None}),
-                "value_3":  (any_type, {"default": None}),
-                "value_4":  (any_type, {"default": None}),
-                "value_5":  (any_type, {"default": None}),
-                "value_6":  (any_type, {"default": None}),
-                "value_7":  (any_type, {"default": None}),
-                "value_8":  (any_type, {"default": None}),
-                "value_9":  (any_type, {"default": None}),
-                "value_10": (any_type, {"default": None}),
-                "value_11": (any_type, {"default": None}),
-                "value_12": (any_type, {"default": None}),
-                "value_13": (any_type, {"default": None}),
-                "value_14": (any_type, {"default": None}),
+                "value_0": (any_type, lazy_options),
+                "value_1": (any_type, lazy_options),
+                "value_2": (any_type, lazy_options),
+                "value_3": (any_type, lazy_options),
+                "value_4": (any_type, lazy_options),
+                "value_5": (any_type, lazy_options),
+                "value_6": (any_type, lazy_options),
+                "value_7": (any_type, lazy_options),
+                "value_8": (any_type, lazy_options),
+                "value_9": (any_type, lazy_options),
+                "value_10": (any_type, lazy_options),
+                "value_11": (any_type, lazy_options),
+                "value_12": (any_type, lazy_options),
+                "value_13": (any_type, lazy_options),
+                "value_14": (any_type, lazy_options),
             }
         }
 
@@ -85,6 +88,7 @@ class AnyIndex:
         return (kwargs.get(key, None),)
 
 
+# ============ 25 输入版本 ============
 class AnyIndexStrong:
     NAME = "Any Index Strong"
     CATEGORY = "Practical-Tools/utils"
@@ -96,31 +100,31 @@ class AnyIndexStrong:
                 "index": ("INT", {"default": 0, "min": 0, "max": 24, "step": 1}),
             },
             "optional": {
-                "value_0":  (any_type, {"default": None}),
-                "value_1":  (any_type, {"default": None}),
-                "value_2":  (any_type, {"default": None}),
-                "value_3":  (any_type, {"default": None}),
-                "value_4":  (any_type, {"default": None}),
-                "value_5":  (any_type, {"default": None}),
-                "value_6":  (any_type, {"default": None}),
-                "value_7":  (any_type, {"default": None}),
-                "value_8":  (any_type, {"default": None}),
-                "value_9":  (any_type, {"default": None}),
-                "value_10": (any_type, {"default": None}),
-                "value_11": (any_type, {"default": None}),
-                "value_12": (any_type, {"default": None}),
-                "value_13": (any_type, {"default": None}),
-                "value_14": (any_type, {"default": None}),
-                "value_15": (any_type, {"default": None}),
-                "value_16": (any_type, {"default": None}),
-                "value_17": (any_type, {"default": None}),
-                "value_18": (any_type, {"default": None}),
-                "value_19": (any_type, {"default": None}),
-                "value_20": (any_type, {"default": None}),
-                "value_21": (any_type, {"default": None}),
-                "value_22": (any_type, {"default": None}),
-                "value_23": (any_type, {"default": None}),
-                "value_24": (any_type, {"default": None}),
+                "value_0": (any_type, lazy_options),
+                "value_1": (any_type, lazy_options),
+                "value_2": (any_type, lazy_options),
+                "value_3": (any_type, lazy_options),
+                "value_4": (any_type, lazy_options),
+                "value_5": (any_type, lazy_options),
+                "value_6": (any_type, lazy_options),
+                "value_7": (any_type, lazy_options),
+                "value_8": (any_type, lazy_options),
+                "value_9": (any_type, lazy_options),
+                "value_10": (any_type, lazy_options),
+                "value_11": (any_type, lazy_options),
+                "value_12": (any_type, lazy_options),
+                "value_13": (any_type, lazy_options),
+                "value_14": (any_type, lazy_options),
+                "value_15": (any_type, lazy_options),
+                "value_16": (any_type, lazy_options),
+                "value_17": (any_type, lazy_options),
+                "value_18": (any_type, lazy_options),
+                "value_19": (any_type, lazy_options),
+                "value_20": (any_type, lazy_options),
+                "value_21": (any_type, lazy_options),
+                "value_22": (any_type, lazy_options),
+                "value_23": (any_type, lazy_options),
+                "value_24": (any_type, lazy_options),
             }
         }
 
@@ -138,7 +142,7 @@ class AnyIndexStrong:
         return (kwargs.get(key, None),)
 
 
-# 注册映射
+# ============ 注册映射 ============
 NODE_CLASS_MAPPINGS = {
     "wcx_AnyIndexSimple": AnyIndexSimple,
     "wcx_AnyIndex": AnyIndex,
