@@ -1,5 +1,22 @@
-from .context_utils import is_context_empty
-from .utils import any_type
+class AnyType(str):
+    def __ne__(self, __value: object) -> bool:
+        return False
+    def __eq__(self, __value: object) -> bool:
+        return True
+    def __str__(self):
+        return "*"
+
+any_type = AnyType("*")
+
+
+def is_context_empty(context):
+    """检查上下文（包含 model 和 clip 的字典）是否为空。"""
+    if isinstance(context, dict):
+        model = context.get('model')
+        clip = context.get('clip')
+        if model is None or clip is None:
+            return True
+    return False
 
 
 def is_none(value):

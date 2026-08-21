@@ -3,7 +3,7 @@ import torch
 
 class RepeatMaskBatch:
     NAME = "Repeat Mask Batch"
-    CATEGORY = "Practical-Tools/mask"
+    CATEGORY = "Practical-Tools/Mask"
 
     @classmethod
     def INPUT_TYPES(cls):

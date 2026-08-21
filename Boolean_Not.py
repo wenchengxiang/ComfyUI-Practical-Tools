@@ -9,7 +9,7 @@ class wcx_BooleanNot:
         }
 
     FUNCTION = "execute"
-    CATEGORY = "Passthrough/utils"
+    CATEGORY = "Practical-Tools/utils"
 
     RETURN_TYPES = ("BOOLEAN", )
     RETURN_NAMES = ("取反结果", )

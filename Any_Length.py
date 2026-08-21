@@ -1,4 +1,12 @@
-from .utils import any_type
+class AnyType(str):
+    def __ne__(self, __value: object) -> bool:
+        return False
+    def __eq__(self, __value: object) -> bool:
+        return True
+    def __str__(self):
+        return "*"
+
+any_type = AnyType("*")
 
 
 class AnyLength:
