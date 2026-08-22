@@ -1,3 +1,6 @@
+import torch
+
+
 class AnyType(str):
     def __ne__(self, __value: object) -> bool:
         return False
@@ -27,11 +30,18 @@ class AnyLength:
     FUNCTION = "get_length"
 
     def get_length(self, any):
-        # any is always a list because INPUT_IS_LIST=True
-        # If there is only one element and it's a list/tuple, return its length
-        if len(any) == 1 and isinstance(any[0], (list, tuple)):
-            return (len(any[0]),)
-        # Otherwise return the number of connected inputs (batch size)
+        # 如果只有一个输入连接
+        if len(any) == 1:
+            data = any[0]
+            if isinstance(data, (list, tuple)):
+                return (len(data),)
+            elif isinstance(data, torch.Tensor):
+                # 张量：返回第0维大小（标量返回1）
+                return (data.shape[0] if data.dim() > 0 else 1,)
+            else:
+                # 单个值（字符串、整数、None等）
+                return (1,)
+        # 多个连接，返回连接数
         return (len(any),)
 
 
