@@ -92,7 +92,7 @@ function patchGroupPrototype() {
              *
              *     My Group ·
              */
-            this.title = `${oldTitle}•`;
+            this.title = `${oldTitle} ᴘ`;
 
 
             /*

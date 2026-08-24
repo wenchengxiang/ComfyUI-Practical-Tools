@@ -81,7 +81,7 @@ function patchNodePrototype(node) {
              * 直接让 ComfyUI 原来的标题绘制函数
              * 自己处理这个字符的位置。
              */
-            this.title = `${oldTitle}•`;
+            this.title = `${oldTitle} ᴘ`;
 
 
             /*
