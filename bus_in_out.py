@@ -48,9 +48,10 @@ class WCXBusOut:
     @classmethod
     def INPUT_TYPES(cls):
         return {
-            "required": {
+            "required": {},
+            "optional": {
                 # 严格对接精简后的总线类型
-                "总线束": ("WCX_BUS",), 
+                "总线束": ("WCX_BUS",),
             }
         }
 
