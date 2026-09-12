@@ -6,13 +6,16 @@ import numpy as np
 import onnxruntime as ort
 from PIL import Image
 
+import folder_paths
 import comfy.utils
 
 
 # ============ 基础设置 ============
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-MODELS_DIR = os.path.join(BASE_DIR, "models")
+MODELS_DIR = os.path.join(
+    folder_paths.models_dir,
+    "wd14"
+)
 
 DEFAULT_MODEL = "wd-v1-4-moat-tagger-v2"
 DEFAULT_THRESHOLD = 0.35
@@ -64,12 +67,15 @@ def get_installed_models():
     models = []
 
     for filename in os.listdir(MODELS_DIR):
+
         if not filename.lower().endswith(".onnx"):
             continue
 
         model_name = os.path.splitext(filename)[0]
 
-        if os.path.isfile(get_tag_path(model_name)):
+        if os.path.isfile(
+            get_tag_path(model_name)
+        ):
             models.append(model_name)
 
     return sorted(models)
@@ -78,6 +84,7 @@ def get_installed_models():
 # ============ 加载模型 ============
 
 def load_model(model_name):
+
     if model_name in _MODEL_CACHE:
         return _MODEL_CACHE[model_name]
 
@@ -101,6 +108,7 @@ def load_model(model_name):
 # ============ 加载标签 ============
 
 def load_tags(model_name):
+
     if model_name in _TAG_CACHE:
         return _TAG_CACHE[model_name]
 
@@ -128,6 +136,7 @@ def load_tags(model_name):
         next(reader, None)
 
         for row in reader:
+
             if len(row) < 3:
                 continue
 
@@ -137,10 +146,16 @@ def load_tags(model_name):
 
             index = len(tags)
 
-            if general_index is None and category == "0":
+            if (
+                general_index is None
+                and category == "0"
+            ):
                 general_index = index
 
-            if character_index is None and category == "4":
+            if (
+                character_index is None
+                and category == "4"
+            ):
                 character_index = index
 
             tags.append({
@@ -151,12 +166,14 @@ def load_tags(model_name):
 
     if general_index is None:
         raise RuntimeError(
-            f"General tag category not found:\n{csv_path}"
+            f"General tag category not found:\n"
+            f"{csv_path}"
         )
 
     if character_index is None:
         raise RuntimeError(
-            f"Character tag category not found:\n{csv_path}"
+            f"Character tag category not found:\n"
+            f"{csv_path}"
         )
 
     data = {
@@ -172,7 +189,11 @@ def load_tags(model_name):
 
 # ============ 图像预处理 ============
 
-def prepare_image(image, target_size):
+def prepare_image(
+    image,
+    target_size
+):
+
     image = image.convert("RGB")
 
     width, height = image.size
@@ -196,8 +217,13 @@ def prepare_image(image, target_size):
         (255, 255, 255),
     )
 
-    left = (target_size - new_width) // 2
-    top = (target_size - new_height) // 2
+    left = (
+        target_size - new_width
+    ) // 2
+
+    top = (
+        target_size - new_height
+    ) // 2
 
     canvas.paste(
         image,
@@ -228,6 +254,7 @@ def make_cache_key(
     character_threshold,
     exclude_tags,
 ):
+
     hasher = hashlib.sha256()
 
     hasher.update(
@@ -262,20 +289,32 @@ def tag_image(
     character_threshold,
     exclude_tags,
 ):
+
     model = load_model(model_name)
+
     tag_data = load_tags(model_name)
 
     tags = tag_data["tags"]
-    general_index = tag_data["general_index"]
-    character_index = tag_data["character_index"]
+
+    general_index = (
+        tag_data["general_index"]
+    )
+
+    character_index = (
+        tag_data["character_index"]
+    )
 
     input_info = model.get_inputs()[0]
+
     input_name = input_info.name
     input_shape = input_info.shape
 
     target_size = input_shape[1]
 
-    if not isinstance(target_size, int):
+    if not isinstance(
+        target_size,
+        int
+    ):
         target_size = 448
 
     input_image = prepare_image(
@@ -283,7 +322,9 @@ def tag_image(
         target_size,
     )
 
-    output_name = model.get_outputs()[0].name
+    output_name = (
+        model.get_outputs()[0].name
+    )
 
     probabilities = model.run(
         [output_name],
@@ -295,6 +336,7 @@ def tag_image(
     excluded = set()
 
     if exclude_tags:
+
         excluded = {
             tag.strip().lower()
             for tag in exclude_tags.split(",")
@@ -309,6 +351,7 @@ def tag_image(
         general_index,
         character_index,
     ):
+
         probability = float(
             probabilities[index]
         )
@@ -333,6 +376,7 @@ def tag_image(
         character_index,
         len(tags),
     ):
+
         probability = float(
             probabilities[index]
         )
@@ -349,15 +393,16 @@ def tag_image(
             (tag, probability)
         )
 
-    # Character 在前，General 在后
+    # Character 在前
     results = (
-        character_results +
-        general_results
+        character_results
+        + general_results
     )
 
     output_tags = []
 
     for tag, _ in results:
+
         tag = tag.replace(
             "_",
             " "
@@ -377,6 +422,7 @@ class WD14Tagger:
 
     @classmethod
     def INPUT_TYPES(cls):
+
         models = get_installed_models()
 
         if not models:
@@ -391,6 +437,7 @@ class WD14Tagger:
 
         return {
             "required": {
+
                 "image": (
                     "IMAGE",
                 ),
@@ -453,6 +500,7 @@ class WD14Tagger:
         character_threshold,
         exclude_tags,
     ):
+
         images = image.cpu().numpy()
 
         results = []
