@@ -1,0 +1,1 @@
+注释：打开js文件，搜索 this.title = `${oldTitle}，修改后面内容修改固定图标。
