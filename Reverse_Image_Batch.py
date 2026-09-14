@@ -22,9 +22,9 @@ class ReverseImageBatch:
 
 
 NODE_CLASS_MAPPINGS = {
-    "ReverseImageBatch": ReverseImageBatch,
+    "wcx_ReverseImageBatch": ReverseImageBatch,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "ReverseImageBatch": "Reverse Image Batch",
+    "wcx_ReverseImageBatch": "Reverse Image Batch",
 }

@@ -14,7 +14,7 @@ except ImportError:
 
 class wcx_ModelScopeAPI:
 
-    CATEGORY = "Practical-Tools/Utils"
+    CATEGORY = "Practical-Tools/utils"
     FUNCTION = "generate_text"
 
     RETURN_TYPES = ("STRING",)
