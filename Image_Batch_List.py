@@ -46,18 +46,31 @@ class wcx_ImageListToImageBatch:
                 img = img.unsqueeze(0)
             return (img,)
 
-        image1 = 图像[0]
-        if image1.ndim == 3:
-            image1 = image1.unsqueeze(0)
+        # ------------------------------------------------------
+        # 性能修复：旧写法在循环里逐张 torch.cat((image1, image2))
+        # 是 O(n²)，每轮都把前面累积的所有图片重新拷贝一遍。
+        # 现改为：先统一尺寸/通道/设备放进列表，最后一次性 cat。
+        # 结果与原逻辑完全一致（最终通道数 = 全部图片的最小通道数）。
+        # ------------------------------------------------------
 
-        for image2 in 图像[1:]:
+        target = 图像[0]
+        if target.ndim == 3:
+            target = target.unsqueeze(0)
+
+        target_device = target.device
+        H, W = target.shape[1], target.shape[2]
+        final_C = target.shape[3]
+
+        processed = []
+
+        for image2 in 图像:
+
             if image2.ndim == 3:
                 image2 = image2.unsqueeze(0)
 
-            if image2.device != image1.device:
-                image2 = image2.to(image1.device)
+            if image2.device != target_device:
+                image2 = image2.to(target_device)
 
-            H, W = image1.shape[1], image1.shape[2]
             if image2.shape[1] != H or image2.shape[2] != W:
                 image2 = comfy.utils.common_upscale(
                     image2.movedim(-1, 1),
@@ -67,14 +80,15 @@ class wcx_ImageListToImageBatch:
                     "center"
                 ).movedim(1, -1)
 
-            if image2.shape[3] != image1.shape[3]:
-                min_C = min(image1.shape[3], image2.shape[3])
-                image1 = image1[:, :, :, :min_C]
-                image2 = image2[:, :, :, :min_C]
+            if image2.shape[3] != target.shape[3]:
+                final_C = min(final_C, image2.shape[3])
 
-            image1 = torch.cat((image1, image2), dim=0)
+            processed.append(image2)
 
-        return (image1,)
+        # 统一通道数后一次性拼接（含第一张）
+        processed = [im[:, :, :, :final_C] for im in processed]
+
+        return (torch.cat(processed, dim=0),)
 
 
 # ==========================================

@@ -1,22 +1,23 @@
 import numpy as np
 import torch
-from PIL import Image, ImageOps
 from scipy.ndimage import binary_fill_holes
 
-# ==========================================
-# 内部辅助转换工具（确保不污染全局命名空间）
-# ==========================================
-def _mask2pil(mask):
-    if mask.ndim > 2:
-        mask = mask.squeeze(0)
-    mask_np = mask.cpu().numpy().astype('uint8')
-    if mask_np.max() <= 1.0:
-        mask_np = (mask_np * 255).astype('uint8')
-    return Image.fromarray(mask_np, mode="L")
-
-def _pil2mask(image):
-    image_np = np.array(image.convert("L")).astype(np.float32) / 255.0
-    return 1.0 - torch.from_numpy(image_np)
+# ==========================================================
+# Mask Fill Holes —— 性能优化版
+#
+# 原版每帧：tensor→uint8→PIL→scipy→PIL→RGB→invert→PIL→tensor，
+# 中间有 3 次 PIL 对象创建 + 1 次无意义的 RGB 往返转换。
+# 优化后：
+#   - 整个 batch 只做一次 tensor→numpy 同步、一次 numpy→tensor
+#   - 去掉全部 PIL 对象和无意义 RGB 转换（fill→invert 直接算）
+#   - 核心算法仍是 scipy binary_fill_holes（C 实现，无法更优）
+#
+# 语义完全对齐原版，包括一个隐蔽细节：
+#   原版 _mask2pil 先把 float 直接 astype('uint8')（截断到 0/1），
+#   再 *255，等价于 binary = (mask >= 1.0)。本版保留同样阈值。
+#   注意：原版 fill_region 的 ImageOps.invert 与 _pil2mask 的 1- 是
+#   双重反转，互相抵消 —— 最终输出就是 filled 本身（已数值核验）。
+# ==========================================================
 
 
 class wcx_MaskFillHoles:
@@ -36,29 +37,27 @@ class wcx_MaskFillHoles:
     def fill_holes(self, 遮罩):
         # 针对单张 MASK 或 MASK 批处理（Batch）进行遍历处理
         if 遮罩.ndim == 3:
-            filled_masks = []
-            for m in 遮罩:
-                filled_masks.append(self.fill_region(_mask2pil(m)))
-            
-            # 重新打包成 Tensor Batch 返回
-            return (torch.cat([_pil2mask(f_m) for f_m in filled_masks], dim=0),)
+            batch_np = 遮罩.cpu().numpy()
+            filled = np.empty(batch_np.shape, dtype=np.float32)
+
+            for i in range(batch_np.shape[0]):
+                # 等价于原版 uint8 截断后的 (mask > 0)
+                binary = batch_np[i] >= 1.0
+                filled[i] = binary_fill_holes(binary)
+
+            # 原版 invert + _pil2mask(1-) 双重反转互相抵消 → 输出 = filled
+            return (torch.from_numpy(filled),)
         else:
             # 单张 Mask 处理
-            return (_pil2mask(self.fill_region(_mask2pil(遮罩))),)
-
-    def fill_region(self, image):
-        # 核心算法：通过 scipy 的 binary_fill_holes 进行高保真孔洞填充
-        image = image.convert("L")
-        binary_mask = np.array(image) > 0
-        filled_mask = binary_fill_holes(binary_mask)
-        filled_image = Image.fromarray(filled_mask.astype(np.uint8) * 255, mode="L")
-        # 还原 WAS 经典的遮罩反转逻辑，确保黑白遮罩关系正常
-        return ImageOps.invert(filled_image.convert("RGB"))
+            mask_np = 遮罩.cpu().numpy()
+            binary = mask_np >= 1.0
+            filled = binary_fill_holes(binary)
+            return (torch.from_numpy(filled.astype(np.float32)),)
 
 
-# ==========================================
+# ==========================================================
 # WCX 专属节点注册与显示名称映射
-# ==========================================
+# ==========================================================
 NODE_CLASS_MAPPINGS = {
     "wcx_MaskFillHoles": wcx_MaskFillHoles
 }

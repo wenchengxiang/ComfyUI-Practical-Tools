@@ -2,12 +2,21 @@ import os
 import re
 import shutil
 import subprocess
+import time
 import uuid
 
 
 class FolderVideoConcat:
     NAME = "Folder Video Concat"
     CATEGORY = "Practical-Tools/video"
+
+    # 性能修复：输出目录清理策略
+    # 原版每次运行生成 merged_{uuid}.mp4 且永不清理，长期使用
+    # 磁盘无限增长。现改为：保留最近 _MAX_KEEP 个输出文件，
+    # 且只删除创建时间超过 _MAX_AGE_HOURS 小时的文件（避免误删
+    # 其他工作流仍在引用的新输出）。
+    _MAX_KEEP = 30
+    _MAX_AGE_HOURS = 24
 
     VIDEO_EXTENSIONS = {
         ".mp4",
@@ -328,6 +337,64 @@ class FolderVideoConcat:
                 )
 
     # =========================================================
+    # 清理旧输出（性能修复）
+    # =========================================================
+
+    @classmethod
+    def cleanup_old_outputs(cls, output_dir):
+
+        try:
+
+            now = time.time()
+            max_age = cls._MAX_AGE_HOURS * 3600
+
+            candidates = []
+
+            for filename in os.listdir(output_dir):
+
+                if not filename.startswith("merged_"):
+                    continue
+
+                if not filename.endswith(".mp4"):
+                    continue
+
+                path = os.path.join(
+                    output_dir,
+                    filename
+                )
+
+                try:
+
+                    mtime = os.path.getmtime(path)
+
+                except OSError:
+                    continue
+
+                candidates.append(
+                    (mtime, path)
+                )
+
+            # 按新旧排序，保留最近 _MAX_KEEP 个
+            candidates.sort(
+                key=lambda x: x[0],
+                reverse=True,
+            )
+
+            for mtime, path in candidates[_MAX_KEEP:]:
+
+                # 只删足够旧的文件，防止误删仍在使用的输出
+                if now - mtime > max_age:
+
+                    try:
+                        os.remove(path)
+                    except OSError:
+                        pass
+
+        except Exception:
+            # 清理失败不影响主流程
+            pass
+
+    # =========================================================
     # 主函数
     # =========================================================
 
@@ -587,7 +654,15 @@ class FolderVideoConcat:
                     ) from e
 
             # -------------------------------------------------
-            # 12. 返回 VIDEO
+            # 12. 清理旧输出（保留最近 30 个且超过 24h 的才删）
+            # -------------------------------------------------
+
+            self.cleanup_old_outputs(
+                output_dir
+            )
+
+            # -------------------------------------------------
+            # 13. 返回 VIDEO
             #
             # output_file 必须保留。
             #
@@ -599,7 +674,7 @@ class FolderVideoConcat:
         finally:
 
             # -------------------------------------------------
-            # 13. 只删除 concat 工作目录
+            # 14. 只删除 concat 工作目录
             #
             # 不删除最终 MP4。
             # -------------------------------------------------
