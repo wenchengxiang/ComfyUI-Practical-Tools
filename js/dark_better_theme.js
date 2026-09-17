@@ -5,6 +5,16 @@ import { app } from "../../scripts/app.js";
  * Dark (Better) 主题 —— 通过 ComfyUI 官方调色板系统自动导入并启用
  * =====================================================================
  *
+ * v2（修复"自动选择"逻辑，替代 v1）：
+ *   - v1 缺陷：激活条件要求"首次安装 且 当前主题为 dark/空"；
+ *     若首次安装时正用着其他主题（obsidian 等），则不激活且不写标记，
+ *     之后永久失去自动激活机会；卸载重装后 localStorage 标记残留，
+ *     也不再自动激活。
+ *   - v2 修复：首次安装（无激活标记）→ 无条件自动激活一次；
+ *     后端尚不存在该主题时 → 导入并激活。
+ *     激活后写入 pt-theme-activated 标记，之后用户手动切换任何主题
+ *     都不再干预（尊重手动选择）。
+ *
  * 官方 ColorPalette（色彩主题）系统：
  *   - 设置 → 外观 → 色彩主题 下拉可选主题
  *   - 自定义主题存在后端设置 `Comfy.CustomColorPalettes`（对象映射 {id: palette}）
@@ -14,9 +24,9 @@ import { app } from "../../scripts/app.js";
  *   1. fetch 本地主题文件 ./themes/dark-better.json
  *   2. GET /settings 检查后端是否已有 "Dark (Better)"
  *      - 没有 → 导入
- *      - 有但 `_fileVersion` 落后于本地文件 → 覆盖导入（用于你以后更新
- *        主题文件后，刷新页面即可自动升级，不需要手动删旧主题）
- *   3. 首次安装（从未激活过）且当前是默认主题（dark/空）→ 自动激活一次
+ *      - 有但 `_fileVersion` 与本地文件不同 → 覆盖导入（用于更新主题
+ *        文件后刷新页面自动升级）
+ *   3. 首次安装（从未激活过）→ 自动激活一次（无论当前主题是什么）
  *   4. 激活过后写入 `pt-theme-activated` 标记，之后切到任何主题
  *      （包括 Dark (Default)）都不再干预 —— 尊重手动选择
  *   5. 首次激活后提示刷新一次页面（前端 store 才能读到新主题）
@@ -44,15 +54,17 @@ async function ensureOfficialTheme() {
     const palettes = settings["Comfy.CustomColorPalettes"] || {};
     const current = settings["Comfy.ColorPalette"];
 
-    // 是否需要导入/覆盖：后端没有，或本地文件版本号更新
+    // 是否需要导入/覆盖：后端没有，或本地文件版本号与后端不同
     const existing = palettes[THEME_ID];
     const needsImport =
       !existing || existing["_fileVersion"] !== theme["_fileVersion"];
 
-    // 仅首次安装（从未激活过）且当前是默认主题（dark/空）时自动激活一次；
-    // 一旦激活过（写了 ACTIVATED_FLAG），之后不再干预任何手动切换
+    // v2 修复：首次安装（从未激活过）无条件自动激活一次；
+    // 或后端尚不存在该主题时（手动删过/全新环境）导入并激活。
+    // 一旦激活过（写了 ACTIVATED_FLAG），之后不再干预任何手动切换。
     const firstRun = !localStorage.getItem(ACTIVATED_FLAG);
-    const shouldActivate = firstRun && (!current || current === "dark");
+    const noExisting = !existing;
+    const shouldActivate = firstRun || noExisting;
 
     if (needsImport || shouldActivate) {
       const body = { "Comfy.CustomColorPalettes": palettes };

@@ -13,12 +13,19 @@ NODE_CLASS_MAPPINGS = {}
 NODE_DISPLAY_NAME_MAPPINGS = {}
 
 # 自动发现所有节点文件
-node_files = [f for f in os.listdir(current_dir) 
-             if f.endswith('.py') and not f.startswith('__')]
+nodes_dir = os.path.join(current_dir, "py")
+if not os.path.isdir(nodes_dir):
+    nodes_dir = current_dir
+node_files = []
+for root, _dirs, files in os.walk(nodes_dir):
+    if '__pycache__' in root:
+        continue
+    node_files.extend(os.path.join(root, f) for f in files
+                      if f.endswith('.py') and not f.startswith('__'))
 
 for node_file in node_files:
-    module_name = node_file[:-3]  # 移除.py
-    file_path = os.path.join(current_dir, node_file)
+    module_name = os.path.basename(node_file)[:-3]  # 移除.py
+    file_path = node_file
     
     try:
         # 改用绝对路径的 spec 动态加载，模仿 ComfyUI 官方加载外部 custom_nodes 的最稳妥逻辑
