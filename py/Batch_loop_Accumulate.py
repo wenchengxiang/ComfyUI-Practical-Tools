@@ -1,5 +1,13 @@
 # Batch_Accumulate.py — wcx 循环累积专用节点（Batchloop Accumulate / wcx_BatchloopAccumulate）
 #
+# v4：适配 ComfyUI V3 音频格式（waveform = [B, C, S] 3D）
+#     - 修复 v3 方向错误：v3 把音频统一成 [C, S]（2D），但 V3 PreviewAudio/save_audio
+#       内部 `for batch_number, waveform in enumerate(audio["waveform"])` 按 batch 迭代，
+#       2D 输入会被迭代成 1D 声道 → movedim(0,1) 崩溃（IndexError: Dimension out of range）。
+#     - v4 统一为 [B, C, S]（3D）：1D -> [1,1,S]、2D -> [1,C,S]、3D 保持原样。
+#     - 音频拼接：统一 3D 后沿时间维 cat，保持 batch 维。
+#     - v2 改动保留：accumulated（累积值）在 UI 上方、item（本轮值）在下方。
+#
 # 语义单一：把 item 逐轮"加进" accumulated，输出新 accumulated。
 # 专为 For/While 循环设计：循环内每轮把本轮结果累积起来，
 # 循环结束后通过 End.valueN 拿到全部轮次的结果。
@@ -8,7 +16,7 @@
 #   accumulated=None            -> 直接返回 item（首轮不接累积输入）
 #   item=None                   -> 直接返回 accumulated
 #   latent  + latent            -> 按 batch 维拼接（尺寸自动对齐，batch_index 合并）
-#   音频dict + 音频dict          -> 按时间维拼接（采样率/声道自动对齐）
+#   音频dict + 音频dict          -> 按时间维拼接（采样率/声道自动对齐，waveform 保持 3D）
 #   tensor  + tensor            -> 按 batch 维拼接（图像语义自动对齐）
 #   list    + 任意              -> 追加为元素（不平铺，每轮一个元素）
 #   任意    + list              -> 元素前置（[acc] + item）
@@ -38,10 +46,8 @@ class BatchAccumulate:
     def INPUT_TYPES(cls):
         return {
             "required": {
+                "accumulated": (any_type, {}),  # 累积值（循环携带，首轮可不接）
                 "item": (any_type, {}),  # 本轮要累积进去的值
-            },
-            "optional": {
-                "accumulated": (any_type, {}),  # 累积值（首轮可不接）
             },
         }
 
@@ -50,12 +56,12 @@ class BatchAccumulate:
     FUNCTION = "accumulate"
     CATEGORY = "Practical-Tools/Logic"
 
-    def accumulate(self, item, accumulated=None):
-        # ---- 空值：首轮 / 单侧空 ----
+    def accumulate(self, accumulated, item):
+        # ---- 空值：首轮 / 单侧空（透传前规范化音频维度）----
         if accumulated is None:
-            return (item,)
+            return (self._norm_audio(item),)
         if item is None:
-            return (accumulated,)
+            return (self._norm_audio(accumulated),)
 
         # ---- LATENT 拼接（dict 含 samples）----
         if isinstance(accumulated, dict) and isinstance(item, dict) \
@@ -65,7 +71,7 @@ class BatchAccumulate:
         # ---- 音频拼接（dict 含 waveform + sample_rate）----
         if isinstance(accumulated, dict) and isinstance(item, dict) \
                 and "waveform" in accumulated and "waveform" in item:
-            return (self._cat_audio(accumulated, item),)
+            return (self._norm_audio(self._cat_audio(accumulated, item)),)
 
         # ---- torch.Tensor 拼接 ----
         if isinstance(accumulated, torch.Tensor) and isinstance(item, torch.Tensor):
@@ -85,6 +91,20 @@ class BatchAccumulate:
         return ([accumulated, item],)
 
     @staticmethod
+    def _norm_audio(audio):
+        """把音频 dict 的 waveform 统一为 [B, C, S]（3D，V3 PreviewAudio 期望格式）：
+        1D -> [1,1,S]；2D -> [1,C,S]；3D 保持原样。"""
+        if isinstance(audio, dict) and isinstance(audio.get("waveform"), torch.Tensor):
+            w = audio["waveform"]
+            if w.dim() == 1:
+                audio = dict(audio)
+                audio["waveform"] = w.unsqueeze(0).unsqueeze(0)
+            elif w.dim() == 2:
+                audio = dict(audio)
+                audio["waveform"] = w.unsqueeze(0)
+        return audio
+
+    @staticmethod
     def _cat_latents(a, b):
         """潜变量拼接：samples 按 batch 维 cat，batch_index 合并，尺寸不匹配自动对齐。"""
         out = a.copy()
@@ -99,7 +119,8 @@ class BatchAccumulate:
 
     @staticmethod
     def _cat_audio(a, b):
-        """音频拼接：沿时间维 cat，采样率自动对齐（需 torchaudio 时重采样），声道自动对齐。"""
+        """音频拼接：沿时间维 cat，采样率自动对齐（需 torchaudio 时重采样），声道自动对齐。
+        waveform 统一为 [B, C, S]（3D）后拼接，保持 batch 维。"""
         out = a.copy()
         wa, wb = a["waveform"], b["waveform"]
         ra, rb = a.get("sample_rate"), b.get("sample_rate")
@@ -113,20 +134,20 @@ class BatchAccumulate:
                     "[BatchAccumulate] 音频 sample_rate 不一致 (%s vs %s) 且环境无 torchaudio，无法重采样"
                     % (ra, rb)
                 )
-        # 统一为 [C, S]（1D->[1,S]；3D->[B,C,S] 取首段，累积语义每轮单段）
-        def as_cs(w):
+        # 统一为 [B, C, S]（1D->[1,1,S]；2D->[1,C,S]；3D 保持）
+        def as_bcs(w):
             if w.dim() == 1:
+                return w.unsqueeze(0).unsqueeze(0)
+            if w.dim() == 2:
                 return w.unsqueeze(0)
-            if w.dim() == 3:
-                return w[0]
             return w
-        wa2, wb2 = as_cs(wa), as_cs(wb)
-        # 声道对齐：少声道重复到多声道
-        c = max(wa2.shape[0], wb2.shape[0])
-        if wa2.shape[0] < c:
-            wa2 = wa2.repeat(c, 1)
-        if wb2.shape[0] < c:
-            wb2 = wb2.repeat(c, 1)
+        wa2, wb2 = as_bcs(wa), as_bcs(wb)
+        # 声道对齐：少声道重复到多声道（batch 维固定为 1）
+        c = max(wa2.shape[1], wb2.shape[1])
+        if wa2.shape[1] < c:
+            wa2 = wa2.repeat(1, c, 1)
+        if wb2.shape[1] < c:
+            wb2 = wb2.repeat(1, c, 1)
         out["waveform"] = torch.cat((wa2, wb2), dim=-1)
         out["sample_rate"] = ra if ra is not None else rb
         return out

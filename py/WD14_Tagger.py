@@ -14,12 +14,54 @@ import comfy.utils
 
 MODELS_DIR = os.path.join(
     folder_paths.models_dir,
-    "wd14"
+    "wd14",
+    "onnx"
 )
 
 DEFAULT_MODEL = "wd-v1-4-moat-tagger-v2"
 DEFAULT_THRESHOLD = 0.35
 DEFAULT_CHARACTER_THRESHOLD = 0.85
+
+
+# ============ 模型下载信息（具体文件直链） ============
+
+MODEL_FILE_URLS = {
+    "wd-v1-4-moat-tagger-v2": {
+        "onnx": "https://huggingface.co/SmilingWolf/wd-v1-4-moat-tagger-v2/resolve/main/model.onnx",
+        "csv": "https://huggingface.co/SmilingWolf/wd-v1-4-moat-tagger-v2/resolve/main/selected_tags.csv",
+    },
+    "wd-v1-4-swinv2-tagger-v2": {
+        "onnx": "https://huggingface.co/SmilingWolf/wd-v1-4-swinv2-tagger-v2/resolve/main/model.onnx",
+        "csv": "https://huggingface.co/SmilingWolf/wd-v1-4-swinv2-tagger-v2/resolve/main/selected_tags.csv",
+    },
+    "wd-v1-4-convnext-tagger-v2": {
+        "onnx": "https://huggingface.co/SmilingWolf/wd-v1-4-convnext-tagger-v2/resolve/main/model.onnx",
+        "csv": "https://huggingface.co/SmilingWolf/wd-v1-4-convnext-tagger-v2/resolve/main/selected_tags.csv",
+    },
+    "wd-v1-4-convnextv2-tagger-v2": {
+        "onnx": "https://huggingface.co/SmilingWolf/wd-v1-4-convnextv2-tagger-v2/resolve/main/model.onnx",
+        "csv": "https://huggingface.co/SmilingWolf/wd-v1-4-convnextv2-tagger-v2/resolve/main/selected_tags.csv",
+    },
+    "wd-v1-4-vit-tagger-v2": {
+        "onnx": "https://huggingface.co/SmilingWolf/wd-v1-4-vit-tagger-v2/resolve/main/model.onnx",
+        "csv": "https://huggingface.co/SmilingWolf/wd-v1-4-vit-tagger-v2/resolve/main/selected_tags.csv",
+    },
+}
+
+
+def format_model_missing_info(model_name=None):
+    lines = [
+        "=" * 60,
+        "模型缺失信息：未找到wd14模型文件",
+    ]
+    if model_name:
+        urls = MODEL_FILE_URLS.get(model_name)
+        if urls:
+            lines.append(f"模型下载地址：{urls['onnx']}")
+            lines.append(f"              {urls['csv']}")
+    lines.append("模型放置目录：ComfyUI\\models\\wd14\\onnx")
+    lines.append("=" * 60)
+    return "\n".join(lines)
 
 
 # ============ 缓存 ============
@@ -44,39 +86,70 @@ else:
     ]
 
 
-# ============ 模型文件 ============
+# ============ 模型文件查找（支持扁平结构和子文件夹结构） ============
 
-def get_model_path(model_name):
-    return os.path.join(
-        MODELS_DIR,
-        f"{model_name}.onnx"
-    )
+def find_model_files(model_name):
+    """查找模型的 onnx 和 csv 文件，支持三种目录结构：
+    方式1（扁平，直接放入）：models/wd14/onnx/model.onnx + selected_tags.csv
+    方式2（扁平，需同名）：models/wd14/onnx/xxx.onnx + xxx.csv
+    方式3（子文件夹，无需改名）：models/wd14/onnx/xxx/model.onnx + selected_tags.csv
+    返回 (onnx_path, csv_path)，找不到返回 (None, None)
+    """
+    # 方式1：扁平，直接放入 model.onnx + selected_tags.csv（识别为默认模型）
+    if model_name == DEFAULT_MODEL:
+        onnx_direct = os.path.join(MODELS_DIR, "model.onnx")
+        csv_direct = os.path.join(MODELS_DIR, "selected_tags.csv")
+        if os.path.isfile(onnx_direct) and os.path.isfile(csv_direct):
+            return onnx_direct, csv_direct
 
+    # 方式2：扁平结构，同名
+    onnx_flat = os.path.join(MODELS_DIR, f"{model_name}.onnx")
+    csv_flat = os.path.join(MODELS_DIR, f"{model_name}.csv")
+    if os.path.isfile(onnx_flat) and os.path.isfile(csv_flat):
+        return onnx_flat, csv_flat
 
-def get_tag_path(model_name):
-    return os.path.join(
-        MODELS_DIR,
-        f"{model_name}.csv"
-    )
+    # 方式3：子文件夹，HuggingFace 默认命名
+    subdir = os.path.join(MODELS_DIR, model_name)
+    onnx_sub = os.path.join(subdir, "model.onnx")
+    csv_sub = os.path.join(subdir, "selected_tags.csv")
+    if os.path.isfile(onnx_sub) and os.path.isfile(csv_sub):
+        return onnx_sub, csv_sub
+
+    return None, None
 
 
 def get_installed_models():
     if not os.path.isdir(MODELS_DIR):
         return []
 
-    models = []
+    models = set()
 
+    # 方式1：扁平，直接放入 model.onnx + selected_tags.csv（识别为默认模型）
+    onnx_direct = os.path.join(MODELS_DIR, "model.onnx")
+    csv_direct = os.path.join(MODELS_DIR, "selected_tags.csv")
+    if os.path.isfile(onnx_direct) and os.path.isfile(csv_direct):
+        models.add(DEFAULT_MODEL)
+
+    # 方式2：扁平结构，扫描 .onnx 文件（需同名 .csv）
     for filename in os.listdir(MODELS_DIR):
-
         if not filename.lower().endswith(".onnx"):
             continue
-
+        if filename.lower() == "model.onnx":
+            continue  # 已在方式1处理
         model_name = os.path.splitext(filename)[0]
+        csv_path = os.path.join(MODELS_DIR, f"{model_name}.csv")
+        if os.path.isfile(csv_path):
+            models.add(model_name)
 
-        if os.path.isfile(
-            get_tag_path(model_name)
-        ):
-            models.append(model_name)
+    # 方式3：子文件夹结构（model.onnx + selected_tags.csv）
+    for item in os.listdir(MODELS_DIR):
+        subdir = os.path.join(MODELS_DIR, item)
+        if not os.path.isdir(subdir):
+            continue
+        onnx = os.path.join(subdir, "model.onnx")
+        csv = os.path.join(subdir, "selected_tags.csv")
+        if os.path.isfile(onnx) and os.path.isfile(csv):
+            models.add(item)
 
     return sorted(models)
 
@@ -88,15 +161,15 @@ def load_model(model_name):
     if model_name in _MODEL_CACHE:
         return _MODEL_CACHE[model_name]
 
-    model_path = get_model_path(model_name)
+    onnx_path, _ = find_model_files(model_name)
 
-    if not os.path.isfile(model_path):
+    if not onnx_path:
         raise FileNotFoundError(
-            f"WD14 model not found:\n{model_path}"
+            format_model_missing_info(model_name)
         )
 
     session = ort.InferenceSession(
-        model_path,
+        onnx_path,
         providers=ORT_PROVIDERS,
     )
 
@@ -112,11 +185,11 @@ def load_tags(model_name):
     if model_name in _TAG_CACHE:
         return _TAG_CACHE[model_name]
 
-    csv_path = get_tag_path(model_name)
+    _, csv_path = find_model_files(model_name)
 
-    if not os.path.isfile(csv_path):
+    if not csv_path:
         raise FileNotFoundError(
-            f"WD14 tag file not found:\n{csv_path}"
+            format_model_missing_info(model_name)
         )
 
     tags = []

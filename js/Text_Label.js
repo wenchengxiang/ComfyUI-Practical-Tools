@@ -43,9 +43,11 @@ class TextLabel extends LGraphNode {
 
 		// 可编辑属性（双击节点后显示在属性面板中）
 		this.properties["fontSize"] = 20;                // 字号（px）
+		this.properties["lineHeight"] = 1;               // 行高倍数（1=字号，1.5=字号×1.5）
 		this.properties["fontColor"] = "#ffffff";        // 文字颜色（hex，支持 #RRGGBBAA）
 		this.properties["opacity"] = 100;                // 透明度 0~100（100 不透明）
 		this.properties["fontFamily"] = "Arial";         // 字体
+		this.properties["fontWeight"] = "normal";        // 字重：normal / bold
 		this.properties["textAlign"] = "left";           // 对齐方式
 		this.properties["backgroundColor"] = "transparent"; // 背景色（默认透明）
 		this.properties["padding"] = 0;                  // 内边距（px）
@@ -69,14 +71,17 @@ class TextLabel extends LGraphNode {
 		this.bgcolor = "#fff0";
 
 		const fontSize = Math.max(Number(this.properties["fontSize"]) || 12, 1);
+		const lineHeight = Math.max(Number(this.properties["lineHeight"]) || 1, 0.1);
+		const actualLineH = fontSize * lineHeight;
 		const opacity = Math.min(Math.max(Number(this.properties["opacity"]) ?? 100, 0), 100);
 		const fontColor = this.properties["fontColor"] || "#ffffff";
 		const backgroundColor = this.properties["backgroundColor"] || "";
 		const fontFamily = this.properties["fontFamily"] || "Arial";
+		const fontWeight = this.properties["fontWeight"] || "normal";
 		const padding = Number(this.properties["padding"]) || 0;
 		const textAlign = this.properties["textAlign"] || "left";
 
-		ctx.font = `${fontSize}px ${fontFamily}`;
+		ctx.font = `${fontWeight} ${fontSize}px ${fontFamily}`;
 
 		// 把标题当作文字内容（支持 \n 转义与多行）
 		const processedTitle = (this.title ?? "")
@@ -87,7 +92,7 @@ class TextLabel extends LGraphNode {
 		// 按最长一行计算节点宽度，节点高度 = 字号 × 行数
 		const maxWidth = Math.max(1, ...lines.map((s) => ctx.measureText(s).width));
 		this.size[0] = Math.ceil(maxWidth + padding * 2);
-		this.size[1] = Math.ceil(fontSize * lines.length + padding * 2);
+		this.size[1] = Math.ceil(actualLineH * lines.length + padding * 2);
 
 		// 旋转
 		const angleDeg = parseInt(String(this.properties["angle"] ?? 0)) || 0;
@@ -130,7 +135,7 @@ class TextLabel extends LGraphNode {
 		let currentY = padding;
 		for (let i = 0; i < lines.length; i++) {
 			ctx.fillText(lines[i] || " ", textX, currentY);
-			currentY += fontSize;
+			currentY += actualLineH;
 		}
 
 		ctx.restore();
@@ -180,9 +185,11 @@ TextLabel.category = "Practical-Tools/utils";
 
 // 属性面板元数据（getPropertyInfo 会读取 constructor["@属性名"]）
 TextLabel["@fontSize"] = { type: "number" };
+TextLabel["@lineHeight"] = { type: "number" };
 TextLabel["@fontColor"] = { type: "string" };
 TextLabel["@opacity"] = { type: "number" };
 TextLabel["@fontFamily"] = { type: "string" };
+TextLabel["@fontWeight"] = { type: "combo", values: ["normal", "bold"] };
 TextLabel["@textAlign"] = { type: "combo", values: ["left", "center", "right"] };
 TextLabel["@backgroundColor"] = { type: "string" };
 TextLabel["@padding"] = { type: "number" };
