@@ -39,7 +39,7 @@ window.PT_WAITING_ROOM_CONFIG = {
     },
     // 第二行（小字）
     line2: {
-        text: "  提醒：点击 茶杯图标 返回工作流节点区  ",
+        text: "  提醒：再次点击茶杯图标或切换工作流 即可退出运行等待区  ",
         fontSize: 18,
         lineHeight: 1.0,
         fontColor: "#ffffff50",
