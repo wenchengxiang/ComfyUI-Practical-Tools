@@ -15,7 +15,22 @@
 //   fontSize        字号（px）
 //   lineHeight      行高倍数（1=字号，1.5=字号×1.5，多行文字间距）
 //   fontColor       文字颜色（#RRGGBB 或 #RRGGBBAA）
+
 //   fontFamily      字体（如 "Arial"、"Microsoft YaHei"、"sans-serif"）
+//   Arial	默认，常规
+//   Arial Black	很粗
+//   Impact	超粗，压缩字形
+//   Verdana	较粗，宽字形
+//   Tahoma	常规
+//   Georgia	衬线，较粗
+//   Times New Roman	衬线，细
+//   Microsoft YaHei	微软雅黑，较粗、现代
+//   SimHei	黑体，很粗，无衬线
+//   SimSun	宋体，细，衬线
+//   KaiTi	楷体
+//   DengXian	等线，Win10+ 默认
+//   FangSong	仿宋
+
 //   fontWeight      字重："normal" / "bold"
 //   textAlign       对齐："left" / "center" / "right"
 //   backgroundColor 背景色（"transparent" = 无背景）
@@ -39,7 +54,7 @@ window.PT_WAITING_ROOM_CONFIG = {
     },
     // 第二行（小字）
     line2: {
-        text: "  提醒：再次点击茶杯图标或切换工作流 即可退出运行等待区  ",
+        text: "  提醒：再次点茶杯或切换工作流 即可退出运行等待区  ",
         fontSize: 18,
         lineHeight: 1.0,
         fontColor: "#ffffff50",
