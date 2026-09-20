@@ -491,7 +491,7 @@ def tag_image(
 class WD14Tagger:
 
     NAME = "WD14 Tagger"
-    CATEGORY = "Practical-Tools/image"
+    CATEGORY = "Practical-Tools/Image"
 
     @classmethod
     def INPUT_TYPES(cls):

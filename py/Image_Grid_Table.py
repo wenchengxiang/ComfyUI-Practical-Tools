@@ -97,7 +97,7 @@ class ImageGridTable:
     RETURN_NAMES = ("输出",)
 
     FUNCTION = "ImageGridTable"
-    CATEGORY = "Practical-Tools/image"
+    CATEGORY = "Practical-Tools/Image"
 
     @classmethod
     def VALIDATE_INPUTS(cls, input_types):
