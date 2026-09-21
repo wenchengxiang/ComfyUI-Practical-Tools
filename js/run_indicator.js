@@ -1686,8 +1686,9 @@ app.registerExtension({
                 body.pt-in-waiting-room .p-togglebutton.p-togglebutton-checked span {
                     color: rgb(161, 161, 170) !important;
                 }
-                /* 进入等待区时只隐藏面包屑导航部分，保留应用按钮和图形下拉菜单 */
-                body.pt-in-waiting-room .subgraph-breadcrumb nav.p-breadcrumb {
+                /* 进入等待区时隐藏面包屑导航 + 返回按钮，保留应用按钮和图形下拉菜单 */
+                body.pt-in-waiting-room .subgraph-breadcrumb nav.p-breadcrumb,
+                body.pt-in-waiting-room .subgraph-breadcrumb .back-button {
                     display: none !important;
                 }
             `;
