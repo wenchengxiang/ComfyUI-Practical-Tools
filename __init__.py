@@ -12,6 +12,11 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 if current_dir not in sys.path:
     sys.path.insert(0, current_dir)
 
+# 把 py 目录也加入路径，方便节点文件用绝对导入核心模块
+py_dir = os.path.join(current_dir, "py")
+if os.path.isdir(py_dir) and py_dir not in sys.path:
+    sys.path.insert(0, py_dir)
+
 NODE_CLASS_MAPPINGS = {}
 NODE_DISPLAY_NAME_MAPPINGS = {}
 
@@ -20,9 +25,11 @@ nodes_dir = os.path.join(current_dir, "py")
 if not os.path.isdir(nodes_dir):
     nodes_dir = current_dir
 node_files = []
-for root, _dirs, files in os.walk(nodes_dir):
-    if '__pycache__' in root:
-        continue
+# 需要跳过的核心模块目录（这些是依赖库，不是节点文件，用相对导入）
+_skip_dirs = {'gguf_core', '__pycache__'}
+for root, dirs, files in os.walk(nodes_dir):
+    # 原地修改 dirs，跳过不需要遍历的目录
+    dirs[:] = [d for d in dirs if d not in _skip_dirs]
     node_files.extend(os.path.join(root, f) for f in files
                       if f.endswith('.py') and not f.startswith('__'))
 

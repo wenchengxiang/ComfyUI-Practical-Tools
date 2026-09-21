@@ -1658,6 +1658,34 @@ app.registerExtension({
         hookDsFitToBoundsExcludeRoom(); // v110：加载工作流时 ds.fitToBounds 也排除等待区
         bindWorkflowTabClick(); // v101：点击工作流 tab 前先拉回顶层，从源头消除等待区视觉残留
         bindWorkflowSwitchForceTop(); // v91：切换工作流后强制目标显示节点区
+        // v120：重启/刷新后自动加载工作流是初始加载，不触发"切换"检测，
+        // 导致 v115 的视图修复不执行。此处主动做一次初始视图检查。
+        (function initialViewCheck() {
+            function check() {
+                try {
+                    const canvas = app.canvas;
+                    const g = app.graph;
+                    const ds = canvas && canvas.ds;
+                    if (!g || !ds) return;
+                    const hasRoom = (g._nodes || []).some(function (n) {
+                        return n && n.subgraph && (n.title || "").trim() === "运行等待区";
+                    });
+                    if (!hasRoom) return;
+                    const cw = (canvas.canvas && canvas.canvas.clientWidth) || window.innerWidth;
+                    const ch = (canvas.canvas && canvas.canvas.clientHeight) || window.innerHeight;
+                    const visRight = (-ds.offset[0] + cw) / ds.scale;
+                    const visBottom = (-ds.offset[1] + ch) / ds.scale;
+                    if (visRight > 5000 || visBottom > 5000) {
+                        if (typeof fitHomeExcludingRoom === "function") {
+                            fitHomeExcludingRoom(g);
+                        }
+                    }
+                } catch (e) {}
+            }
+            setTimeout(check, 500);
+            setTimeout(check, 1200);
+            setTimeout(check, 2000);
+        })();
         // 注入 hover 样式：wrap hover -> tooltip 显示 + pill 高亮（同活动任务按钮 hover 色）
         if (!document.getElementById("pt-ri-style")) {
             const st = document.createElement("style");
@@ -2281,3 +2309,4 @@ app.registerExtension({
         });
     }
 });
+
