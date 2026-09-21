@@ -1,4 +1,4 @@
-// run_indicator.js — Practical-Tools 右上角运行指示条（v78）
+﻿// run_indicator.js — Practical-Tools 右上角运行指示条（v78）
 //
 // v78（v77 基础上新增"运行等待区"茶杯图标）：
 //   * 工作流节点多时运行画面卡——节点移出视口后 canvas 只渲染可见区域，变快。
@@ -287,6 +287,38 @@ const INDICATOR_ID = "pt-run-indicator";
 // 状态色（v38 降饱和；v40 出错红改为动态读取红X，此处为兜底）
 const COLOR_STEP = "#c4ac4e";    // 采样进度（柔和金）
 const COLOR_ERROR_FALLBACK = "#b85c5f"; // 出错红兜底（优先红X按钮色）
+// v108：按节点类型区分进度条颜色（全部低饱和度，与柔和金同档次）
+const STEP_COLORS = {
+    sampler: "#c4ac4e",   // 采样（KSampler等）— 柔和金（原有）
+    text_encode: "#7a9ec4", // 文本编码（CLIP/ACE/LLaMA/Qwen等）— 柔和蓝
+    vae: "#8fb88a",       // VAE编解码 — 柔和绿
+    upscale: "#c49a7a",   // 放大/缩放 — 柔和橙
+    load_model: "#a89ac4", // 加载模型（Checkpoint/LoRA等）— 柔和紫
+    save_image: "#c48a9a", // 保存图像 — 柔和粉
+    control_flow: "#9ab8b8", // 控制流/循环 — 柔和青
+    default: "#9a9a9a"    // 其他 — 柔和灰
+};
+// v108：判断节点是否已知有真实进度（这些节点不启动模拟进度，避免虚假进度）
+function hasRealProgressType(classType) {
+    const t = String(classType || "").toLowerCase();
+    if (!t) return false;
+    // 采样器、自回归文本编码器、部分VAE/音频节点等已知会发progress事件
+    return /sampler|ksampler|sampling|diffusion|ace15|llama|qwen|yue|t5.*encode|seedvr|sheetsage|minimax.*music|audio.*generate|music.*generate/.test(t);
+}
+// 根据节点class_type判断进度条颜色
+function stepColorForType(classType) {
+    const t = String(classType || "").toLowerCase();
+    if (!t) return STEP_COLORS.default;
+    // 注意：按优先级从高到低匹配，避免"load"被"upscale"等误匹配
+    if (/sampler|ksampler|sampling|sample|diffusion/.test(t)) return STEP_COLORS.sampler;
+    if (/clip.*encode|text.*encode|encode.*text|prompt.*encode|promptencode|ace|llama|qwen|yue|t5|bert|textencode/.test(t)) return STEP_COLORS.text_encode;
+    if (/vae|decode|encode.*latent|latent.*encode|taesd/.test(t)) return STEP_COLORS.vae;
+    if (/upscale|scale|resize|interpolat|upsample|downsample/.test(t)) return STEP_COLORS.upscale;
+    if (/load|checkpoint|lora|unet|model|cliploader|vaeloader|autoload/.test(t)) return STEP_COLORS.load_model;
+    if (/saveimage|save.*image|output|record|writefile/.test(t)) return STEP_COLORS.save_image;
+    if (/loop|for|while|if|switch|control|condition|iterate/.test(t)) return STEP_COLORS.control_flow;
+    return STEP_COLORS.default;
+}
 
 let promptData = null;   // 最近一次提交的 prompt 对象（class_type 兜底查）
 let subgraphNames = {};  // v72：提交瞬间扫描任务工作流 graph 缓存的子图容器 id -> title
@@ -463,11 +495,10 @@ function mountToToolbar() {
             cursor: pointer;
             user-select: none;
             pointer-events: auto;
-            color: var(--text-secondary-foreground, #ffffff);
-            opacity: 0.35; /* 找不到等待区时置灰；mount 后 JS 探测找到则改 1 */
+            color: rgba(255,255,255,0.45); /* 茶杯图标：无等待区时稍暗 */
             flex-shrink: 0;
         `;
-        cupBtn.innerHTML = `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h11v7a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4V9z"/><path d="M15 10h2.5a2.5 2.5 0 0 1 0 5H15"/><path d="M7 4c0 1 1 1 1 2M10 4c0 1 1 1 1 2"/></svg>`;
+        cupBtn.innerHTML = `<svg id="pt-cup-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h11v7a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4V9z"/><path d="M15 10h2.5a2.5 2.5 0 0 1 0 5H15"/><path d="M7 4c0 1 1 1 1 2M10 4c0 1 1 1 1 2"/></svg>`;
         cupBtn.title = "";
         cupBtn.tabIndex = 0; /* 可聚焦：鼠标点击也触发 :focus 蓝边（Chrome/Edge 一致） */
         // 茶杯外层：承载独立 tooltip + hover 高亮
@@ -1110,9 +1141,9 @@ function initDropzoneEnlarge() {
             if (dz.dataset.ptEnlarged) return;
             dz.dataset.ptEnlarged = "1";
             const props = {
-                position: "fixed", top: "56px", left: "50%",
-                transform: "translateX(-50%)", width: "600px",
-                "max-width": "none", "z-index": "2000",
+                position: "fixed", top: "48px", left: "50%",
+                transform: "translateX(-50%)", width: "1100px",
+                height: "56px", "max-width": "none", "z-index": "2000",
             };
             for (const [k, v] of Object.entries(props)) {
                 dz.style.setProperty(k, v, "important");
@@ -1122,6 +1153,8 @@ function initDropzoneEnlarge() {
     const mo = new MutationObserver(() => enlarge());
     mo.observe(document.body, { childList: true, subtree: true });
     enlarge();
+
+
 }
 
 // v101：工作流 tab 点击捕获——点击切换工作流前，若当前在等待区，先拉回顶层并恢复视图，
@@ -1218,6 +1251,31 @@ function bindWorkflowSwitchForceTop() {
                             setTimeout(restoreHomeView, 40);
                             setTimeout(restoreHomeView, 180);
                         }
+                    } else if (!restored) {
+                        // v115：持久化工作流恢复可能直接设置 ds.offset/scale（不经过 fitToBounds），
+                        // 导致视图包含等待区（远处+20000）而缩到极小。此处检测并修复。
+                        try {
+                            const g = app.graph;
+                            const ds = canvas && canvas.ds;
+                            if (g && ds) {
+                                const hasRoom = (g._nodes || []).some(function (n) {
+                                    return n && n.subgraph && (n.title || "").trim() === "运行等待区";
+                                });
+                                if (hasRoom) {
+                                    // 计算当前视图可见的世界坐标范围
+                                    const cw = (canvas.canvas && canvas.canvas.clientWidth) || window.innerWidth;
+                                    const ch = (canvas.canvas && canvas.canvas.clientHeight) || window.innerHeight;
+                                    const visRight = (-ds.offset[0] + cw) / ds.scale;
+                                    const visBottom = (-ds.offset[1] + ch) / ds.scale;
+                                    // 等待区在+20000外，正常节点可见范围不会超过5000
+                                    if (visRight > 5000 || visBottom > 5000) {
+                                        restored = true;
+                                        setTimeout(function () { fitHomeExcludingRoom(g); }, 40);
+                                        setTimeout(function () { fitHomeExcludingRoom(g); }, 180);
+                                    }
+                                }
+                            }
+                        } catch (e) {}
                     }
                 }
             } catch (e) {}
@@ -1323,7 +1381,9 @@ function updateCupBtnState() {
         const inRoom = inWaitingRoom(); // v83：跟随当前 graph，跨工作流正确
         let found = inRoom;
         if (!inRoom) { try { found = !!findWaitingRoomNode(); } catch (e) {} }
-        btn.style.opacity = found ? "1" : "0.35";
+        // v116：只改变茶杯图标颜色，按钮背景保持不变
+        const icon = document.getElementById("pt-cup-icon");
+        if (icon) icon.style.color = found ? "rgba(255,255,255,1)" : "rgba(255,255,255,0.45)";
         if (inRoom) {
             btn.style.boxShadow = "inset 0 0 0 2px " + (runButtonColor() || "#4f9cff");
         } else {
@@ -1339,6 +1399,7 @@ function toggleWaitingRoom() {
         if (!canvas) return;
         // v83：当前就在某个等待区 -> 返回它所属工作流主图（状态跟随当前 graph，跨工作流正确）
         if (inWaitingRoom()) {
+            document.body.classList.remove("pt-in-waiting-room");
             const sg = canvas.graph;
             const home = homeGraphOfRoom(sg);
             const hv = sg && sg.__ptHomeView;
@@ -1353,8 +1414,11 @@ function toggleWaitingRoom() {
             }
             if (typeof canvas.setDirty === "function") canvas.setDirty(true, true);
             updateCupBtnState();
+            document.body.classList.remove("pt-in-waiting-room");
             return;
         }
+        // 进入等待区：立即更新UI（不等setTimeout清理过程）
+        document.body.classList.add("pt-in-waiting-room");
         // 找等待区节点；找不到则自动创建（v78）
         let wr = findWaitingRoomNode();
         if (!wr) {
@@ -1421,6 +1485,7 @@ function toggleWaitingRoom() {
             try {
                 if (typeof canvas.openSubgraph === "function") {
                     canvas.openSubgraph(wr.subgraph, wr);
+                    document.body.classList.add("pt-in-waiting-room");
                     // v82：进入后用 rAF 持续"对齐+居中"，直到两行中心连续稳定；覆盖非100%网页缩放下
                     // canvas 按 DPR 重设、文字真实尺寸晚到导致过早锁定、小字停在左侧的问题。
                     ensureRoomResizeListener();
@@ -1581,6 +1646,12 @@ function nodeName(id, graph) {
 app.registerExtension({
     name: "Practical-Tools.RunIndicator",
     async setup() {
+        // 设置开关：未启用则直接退出
+        try {
+            const enabled = app.ui.settings.getSettingValue("PracticalTools.EnableRunIndicator", true);
+            if (enabled === false) return;
+        } catch (e) { /* 默认启用 */ }
+
         initDropzoneEnlarge(); // v107：扩大顶部工具栏拖回停靠命中区域
         bindSubgraphOpen(); // v86：进入等待区时由官方事件记录准确父图/父视图
         hookFitAllExcludeRoom(); // v90：官方"适应全部"排除等待区
@@ -1607,11 +1678,92 @@ app.registerExtension({
                 #pt-run-indicator.pt-init {
                     box-shadow: inset 0 0 0 2px rgba(var(--pt-init-blue-rgb, 79, 156, 255), 1);
                 }
+                /* 进入等待区时隐藏当前工作流标签的蓝色指示线和文字高亮，暗示用户不在普通工作流中 */
+                body.pt-in-waiting-room .p-togglebutton.p-togglebutton-checked {
+                    border-bottom-color: transparent !important;
+                    color: rgb(161, 161, 170) !important;
+                }
+                body.pt-in-waiting-room .p-togglebutton.p-togglebutton-checked span {
+                    color: rgb(161, 161, 170) !important;
+                }
+                /* 进入等待区时只隐藏面包屑导航部分，保留应用按钮和图形下拉菜单 */
+                body.pt-in-waiting-room .subgraph-breadcrumb nav.p-breadcrumb {
+                    display: none !important;
+                }
             `;
             document.head.appendChild(st);
         }
+        // 修复：PrimeReact 激活标签蓝色指示线可能显示为白色（页面加载/切换标签时），持续监听修复
+        window.__ptFixTabBlueLine = function () {
+            try {
+                if (document.body.classList.contains("pt-in-waiting-room")) return; // 等待区由 CSS 控制隐藏
+                // 只清除非激活标签的内联蓝色样式（不碰激活标签，避免竞态导致白色）
+                document.querySelectorAll(".p-togglebutton:not(.p-togglebutton-checked)").forEach(function (tab) {
+                    if (tab.style.borderBottom && tab.style.borderBottom.indexOf("96, 165, 250") !== -1) {
+                        tab.style.borderBottom = "";
+                    }
+                });
+                // 再给激活标签设置蓝色
+                const tabs = document.querySelectorAll(".p-togglebutton.p-togglebutton-checked");
+                tabs.forEach(function (tab) {
+                    const cs = window.getComputedStyle(tab);
+                    if (cs.borderBottomColor === "rgb(255, 255, 255)") {
+                        tab.style.borderBottom = "1px solid rgb(96, 165, 250)";
+                    }
+                });
+            } catch (e) { /* ignore */ }
+        };
+        // 监听 body 变化（标签容器可能还没渲染，用 body 兜底）
+        new MutationObserver(window.__ptFixTabBlueLine).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["class"] });
+        // 初始多次检查（覆盖 PrimeReact 初始化的不同时间点）
+        [300, 600, 1000, 1500, 2000].forEach(function (t) { setTimeout(window.__ptFixTabBlueLine, t); });
+        setInterval(window.__ptFixTabBlueLine, 300); // 高频兜底轮询
+        // 全局拦截已激活工作流标签的点击：阻止 PrimeReact 重复点击取消激活（toggle off）的 bug
+        document.addEventListener("click", function (e) {
+            try {
+                // 排除关闭按钮点击（关闭按钮在标签内部，事件会冒泡到标签）
+                if (e.target.closest('[aria-label="关闭"]')) return;
+                const tab = e.target.closest(".p-togglebutton");
+                if (!tab) return;
+                if (!tab.classList.contains("p-togglebutton-checked")) return; // 只拦截已激活标签
+                // 阻止 PrimeReact 的 toggle 行为，避免重复点击已激活标签导致蓝线消失
+                e.preventDefault();
+                e.stopPropagation();
+                // 如果在等待区中，额外执行退出等待区（回到顶层工作流）
+                if (document.body.classList.contains("pt-in-waiting-room")) {
+                    if (app.canvas && app.canvas.graph !== app.graph && typeof app.canvas.setGraph === "function") {
+                        app.canvas.setGraph(app.graph);
+                    }
+                }
+            } catch (err) { /* ignore */ }
+        }, true);
+        // 进入等待区时隐藏当前工作流标签蓝色指示线（body class 切换，CSS 负责隐藏）
+        let _wasInRoom = false;
+        setInterval(function () {
+            try {
+                const inRoom = typeof inWaitingRoom === "function" ? inWaitingRoom() : false;
+                if (inRoom !== _wasInRoom) {
+                    _wasInRoom = inRoom;
+                    document.body.classList.toggle("pt-in-waiting-room", inRoom);
+                    // 退出等待区时立即修复一次蓝线（避免在等待区中切换标签后退出，蓝线残留白色）
+                    if (!inRoom && typeof window.__ptFixTabBlueLine === "function") {
+                        setTimeout(window.__ptFixTabBlueLine, 50);
+                        setTimeout(window.__ptFixTabBlueLine, 200);
+                    }
+                }
+            } catch (e) { /* ignore */ }
+        }, 200);
+        // 积极挂载：立即尝试 + MutationObserver 持续监听（锚点出现立即挂载，插槽被移除立即重挂）
         mountToToolbar();
-        setInterval(mountToToolbar, 2000);
+        const _mountObserver = new MutationObserver(function () {
+            try {
+                if (!document.getElementById("pt-run-indicator")) {
+                    mountToToolbar();
+                }
+            } catch (e) { /* ignore */ }
+        });
+        _mountObserver.observe(document.body, { childList: true, subtree: true });
+        setInterval(mountToToolbar, 5000); // 低频兜底（极端情况）
         setInterval(() => { try { updateCupBtnState(); } catch (e) {} }, 500); // v83：跨工作流即时刷新茶杯蓝框
 
         const $ = (id) => document.getElementById(id);
@@ -1628,6 +1780,11 @@ app.registerExtension({
         let lastPct = 0;         // 单调钳制
         let blueColor = runButtonColor();
         let errorColor = cancelButtonColor();
+        // v108：模拟进度（无真实进度事件的节点）
+        let simProgressIv = null;
+        let simProgressTimeout = null; // 延迟启动模拟的timeout（有真实进度的节点不启动模拟）
+        let simProgressPct = 0;
+        let hasRealProgress = false; // 当前节点是否收到过真实进度事件
 
         // ---- 定时同步颜色（挂载时按钮可能未渲染，之后补同步） ----
         setInterval(() => {
@@ -1680,6 +1837,63 @@ app.registerExtension({
             pendingStep = Math.max(0, Math.min(100, Math.round(p)));
             scheduleBars();
         };
+        const setStepColor = (color) => {
+            const bar = stepBar();
+            if (bar && bar.style.background !== color) bar.style.background = color;
+        };
+        // v108：启动模拟进度（无真实进度事件的节点）
+        const startSimProgress = () => {
+            stopSimProgress();
+            simProgressPct = 0;
+            hasRealProgress = false;
+            showStep(true);
+            setStep(0);
+            // 0-1.5秒：从0快速增长到60%
+            // 1.5秒后：持续缓慢增长，渐近到90%但永远不到，直到节点完成
+            const fastDuration = 1500;
+            const fastTarget = 60;
+            const slowTarget = 90; // 渐近上限，永远不到
+            const startTime = performance.now();
+            simProgressIv = setInterval(() => {
+                try {
+                    if (hasRealProgress) { stopSimProgress(); return; }
+                    const elapsed = performance.now() - startTime;
+                    let pct;
+                    if (elapsed < fastDuration) {
+                        // 快速阶段：0 -> 60%
+                        pct = (elapsed / fastDuration) * fastTarget;
+                    } else {
+                        // 缓慢阶段：60% -> 渐近90%（用指数衰减曲线，越来越慢）
+                        const slowElapsed = elapsed - fastDuration;
+                        const slowRange = slowTarget - fastTarget;
+                        // 每5秒推进剩余距离的一半，渐近到90%
+                        const halfLife = 5000;
+                        pct = fastTarget + slowRange * (1 - Math.pow(0.5, slowElapsed / halfLife));
+                    }
+                    simProgressPct = pct;
+                    setStep(pct);
+                } catch (e) { stopSimProgress(); }
+            }, 50);
+        };
+        // v108：停止模拟进度（同时取消延迟启动）
+        const stopSimProgress = () => {
+            if (simProgressTimeout) { clearTimeout(simProgressTimeout); simProgressTimeout = null; }
+            if (simProgressIv) { clearInterval(simProgressIv); simProgressIv = null; }
+        };
+        // v108：启动模拟进度（已知有真实进度的节点不启动，避免虚假进度）
+        const scheduleSimProgress = (classType) => {
+            stopSimProgress();
+            simProgressPct = 0;
+            hasRealProgress = false;
+            // 已知有真实进度的节点：完全不启动模拟，直接等待真实进度事件
+            if (hasRealProgressType(classType)) return;
+            // 其他节点：延迟150ms启动模拟（避免极快节点闪烁）
+            simProgressTimeout = setTimeout(() => {
+                simProgressTimeout = null;
+                if (hasRealProgress) return; // 已收到真实进度，不启动模拟
+                startSimProgress();
+            }, 150);
+        };
         const showStep = (on) => {
             const bar = stepBar();
             if (bar) bar.style.display = on ? "block" : "none";
@@ -1708,6 +1922,9 @@ app.registerExtension({
             const pill = $("pt-run-indicator");
             if (!pill) return;
             if (on) {
+                // v108：初始化阶段隐藏进度条，避免显示上一次运行的残留颜色
+                showStep(false);
+                stopSimProgress();
                 pill.style.setProperty("--pt-init-blue-rgb", hexToRgb(blueColor));
                 pill.classList.add("pt-init");
                 if (initBlinkIv) clearInterval(initBlinkIv);
@@ -1734,7 +1951,12 @@ app.registerExtension({
             }
         };
         const reset = () => {
+            // v116：连续运行多个工作流时，前一个 execution_success 后 1.5s 调用 reset，
+            // 但下一个工作流可能已在运行（currentKey !== null），此时不应重置，
+            // 否则会把正在运行的节点名覆盖为"实时运行节点"。
+            if (currentKey !== null) return;
             lastPct = 0;
+            stopSimProgress(); // v108：停止模拟进度
             runTopGraph = null;
             runWorkflowHash = "";
             keyTitleCache = {};
@@ -1880,6 +2102,23 @@ app.registerExtension({
             } catch (e) { activeWorkflowHash = runWorkflowHash; }
             setInit(false);
             showStep(false);
+            // v108：根据当前节点类型设置进度条颜色（只用class_type，没有就灰色）
+            try {
+                const recForColor = findRec(key);
+                const pForColor = (recForColor && recForColor.prompt) || promptData;
+                let ctForColor = null;
+                if (pForColor) {
+                    const pk = pForColor[key] || pForColor[key.split(":")[0]];
+                    if (pk && pk.class_type) ctForColor = pk.class_type;
+                }
+                // 只从prompt记录取class_type，获取不到就用灰色，不从画布节点推断
+                setStepColor(stepColorForType(ctForColor));
+                // v108：把class_type传给模拟进度判断，有真实进度的节点不启动模拟
+                scheduleSimProgress(ctForColor);
+            } catch (e) {
+                setStepColor(STEP_COLORS.default);
+                scheduleSimProgress(null);
+            }
             // v67：在任务工作流中解析并缓存节点名；切走后新节点回退 class_type
             // v68：纯数字（解析失败）不缓存，切回任务工作流后能重新解析出真实节点名
             if (!(key in keyTitleCache) || /^[\d:]+$/.test(keyTitleCache[key])) {
@@ -1911,6 +2150,26 @@ app.registerExtension({
         };
         api.addEventListener("executing", onExecutingEvent);
 
+        // 初始化恢复：刷新后主动查询队列状态，若有正在执行的节点则立即显示（避免运行栏先空后填）
+        setTimeout(function () {
+            fetch("/queue").then(function (r) { return r.json(); }).then(function (q) {
+                try {
+                    if (q && q.queue_running && q.queue_running.length > 0) {
+                        const running = q.queue_running[0];
+                        let nodeId = null;
+                        if (running && running[1] && typeof running[1] === "object") {
+                            nodeId = running[1].node;
+                        } else if (running && running[1] !== undefined) {
+                            nodeId = running[1];
+                        }
+                        if (nodeId !== null && nodeId !== undefined) {
+                            executing(nodeId);
+                        }
+                    }
+                } catch (e) { /* ignore */ }
+            }).catch(function () { /* ignore */ });
+        }, 300);
+
         // progress / execution_cached 仍走 socket（事件源无或不可靠）
         let hookedSocket = null;
         const hookSocket = () => {
@@ -1923,8 +2182,40 @@ app.registerExtension({
                     if (!data || !data.type) return;
                     if (data.type === "progress") {
                         const d = data.data || {};
+                        hasRealProgress = true; // 标记收到真实进度，停止模拟
+                        stopSimProgress();
                         showStep(true);
                         setStep(d.max ? (d.value / d.max) * 100 : 0);
+                    } else if (data.type === "progress_state") {
+                        // v108：新版ComfyUI进度事件，包含所有节点的进度状态
+                        const d = data.data || {};
+                        const nodes = d.nodes || {};
+                        // 找到当前正在运行的节点（state=running）
+                        let runningNode = null;
+                        for (const nid in nodes) {
+                            if (nodes[nid] && nodes[nid].state === "running") {
+                                runningNode = nodes[nid];
+                                break;
+                            }
+                        }
+                        if (runningNode && runningNode.max > 0) {
+                            hasRealProgress = true; // 标记收到真实进度，停止模拟
+                            stopSimProgress();
+                            showStep(true);
+                            setStep((runningNode.value / runningNode.max) * 100);
+                            // 根据节点类型设置颜色（只用class_type，没有就灰色）
+                            try {
+                                const displayId = runningNode.display_node_id || runningNode.node_id;
+                                const recForColor = findRec(String(displayId));
+                                const pForColor = (recForColor && recForColor.prompt) || promptData;
+                                let ctForColor = null;
+                                if (pForColor && displayId) {
+                                    const pk = pForColor[displayId] || pForColor[String(displayId).split(":")[0]];
+                                    if (pk && pk.class_type) ctForColor = pk.class_type;
+                                }
+                                setStepColor(stepColorForType(ctForColor));
+                            } catch (e) { /* 保持当前颜色 */ }
+                        }
                     } else if (data.type === "execution_cached") {
                         const d = data.data || {};
                         const nodes = Array.isArray(d.nodes) ? d.nodes : [];
@@ -1958,6 +2249,7 @@ app.registerExtension({
         });
 
         api.addEventListener("execution_success", () => {
+            stopSimProgress(); // v108：停止模拟进度
             pendingTotal = 100;
             scheduleBars();
             showStep(false);
@@ -1969,6 +2261,7 @@ app.registerExtension({
 
         // 中断（手动取消）不改变进度条颜色——只显示"已中断"后复位
         api.addEventListener("execution_interrupted", () => {
+            stopSimProgress(); // v108：停止模拟进度
             setInit(false);
             show("已中断", "left");
             clearTimeout(successTimer);

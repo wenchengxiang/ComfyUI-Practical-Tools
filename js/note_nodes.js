@@ -1,4 +1,4 @@
-import { app } from "../../scripts/app.js";
+﻿import { app } from "../../scripts/app.js";
 
 // 注入 CSS：Node 1.0 下用 !important 持久隐藏 DOM widget 容器（防止被 ComfyUI 渲染循环覆盖）
 (function injectCss() {
