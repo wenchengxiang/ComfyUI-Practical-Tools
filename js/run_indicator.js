@@ -1,4 +1,4 @@
-﻿// run_indicator.js — Practical-Tools 右上角运行指示条（v78）
+// run_indicator.js — Practical-Tools 右上角运行指示条（v78）
 //
 // v78（v77 基础上新增"运行等待区"茶杯图标）：
 //   * 工作流节点多时运行画面卡——节点移出视口后 canvas 只渲染可见区域，变快。
@@ -289,12 +289,23 @@ const COLOR_STEP = "#c4ac4e";    // 采样进度（柔和金）
 const COLOR_ERROR_FALLBACK = "#b85c5f"; // 出错红兜底（优先红X按钮色）
 // v108：按节点类型区分进度条颜色（全部低饱和度，与柔和金同档次）
 const STEP_COLORS = {
-    sampler: "#c4ac4e",   // 采样（KSampler等）— 柔和金（原有）
-    text_encode: "#7a9ec4", // 文本编码（CLIP/ACE/LLaMA/Qwen等）— 柔和蓝
-    vae: "#8fb88a",       // VAE编解码 — 柔和绿
-    upscale: "#c49a7a",   // 放大/缩放 — 柔和橙
-    load_model: "#a89ac4", // 加载模型（Checkpoint/LoRA等）— 柔和紫
-    save_image: "#c48a9a", // 保存图像 — 柔和粉
+    sampler: "#c49a9a",   // 采样器节点 — 柔和暗红（与SAMPLER统一，区别于clip暗黄）
+    image: "#7a9ec4",     // IMAGE — 柔和蓝
+    mask: "#8fb88a",      // MASK — 柔和绿
+    model: "#a89ac4",     // MODEL — 柔和紫
+    conditioning: "#c49a7a", // CONDITIONING — 柔和橙
+    latent: "#c48a9a",    // LATENT — 柔和粉
+    clip: "#c4b84e",      // CLIP — 柔和暗黄
+    vae: "#b87a7a",       // VAE — 柔和暗红
+    controlnet: "#8ab8a8",// CONTROL_NET — 柔和青绿
+    clip_vision: "#9ab8b8", // CLIP_VISION — 柔和浅蓝
+    clip_vision_output: "#a88a6a", // CLIP_VISION_OUTPUT — 柔和棕
+    style_model: "#a8c49a", // STYLE_MODEL — 柔和浅绿
+    sampler_type: "#c49a9a", // SAMPLER数据类型 — 柔和暗红（官方SAMPLER色相）
+    sigmas: "#a8c4a8",    // SIGMAS — 柔和浅绿
+    guider: "#8ac4c4",    // GUIDER — 柔和青
+    noise: "#9a9a9a",     // NOISE — 柔和灰
+    taesd: "#c49a9a",     // TAESD — 柔和暗红（与SAMPLER统一）
     control_flow: "#9ab8b8", // 控制流/循环 — 柔和青
     default: "#9a9a9a"    // 其他 — 柔和灰
 };
@@ -309,15 +320,44 @@ function hasRealProgressType(classType) {
 function stepColorForType(classType) {
     const t = String(classType || "").toLowerCase();
     if (!t) return STEP_COLORS.default;
-    // 注意：按优先级从高到低匹配，避免"load"被"upscale"等误匹配
-    if (/sampler|ksampler|sampling|sample|diffusion/.test(t)) return STEP_COLORS.sampler;
-    if (/clip.*encode|text.*encode|encode.*text|prompt.*encode|promptencode|ace|llama|qwen|yue|t5|bert|textencode/.test(t)) return STEP_COLORS.text_encode;
-    if (/vae|decode|encode.*latent|latent.*encode|taesd/.test(t)) return STEP_COLORS.vae;
-    if (/upscale|scale|resize|interpolat|upsample|downsample/.test(t)) return STEP_COLORS.upscale;
-    if (/load|checkpoint|lora|unet|model|cliploader|vaeloader|autoload/.test(t)) return STEP_COLORS.load_model;
-    if (/saveimage|save.*image|output|record|writefile/.test(t)) return STEP_COLORS.save_image;
-    if (/loop|for|while|if|switch|control|condition|iterate/.test(t)) return STEP_COLORS.control_flow;
+    // v123：按数据类型关键词匹配，更具体的关键词优先
+    if (/sampler|ksampler|sampling|diffusion/.test(t)) return STEP_COLORS.sampler; // 采样器节点=暗红
+    if (/loop|for|while|if|switch|control_flow/.test(t)) return STEP_COLORS.control_flow; // 控制流/循环=青
+    if (/clip_vision_output/.test(t)) return STEP_COLORS.clip_vision_output;
+    if (/clip_vision/.test(t)) return STEP_COLORS.clip_vision;
+    if (/style_model/.test(t)) return STEP_COLORS.style_model;
+    if (/controlnet|control_net/.test(t)) return STEP_COLORS.controlnet;
+    if (/image/.test(t)) return STEP_COLORS.image;
+    if (/mask/.test(t)) return STEP_COLORS.mask;
+    if (/model|unet/.test(t)) return STEP_COLORS.model;
+    if (/conditioning/.test(t)) return STEP_COLORS.conditioning;
+    if (/latent/.test(t)) return STEP_COLORS.latent;
+    if (/clip/.test(t)) return STEP_COLORS.clip;
+    if (/vae/.test(t)) return STEP_COLORS.vae;
+    if (/sigmas/.test(t)) return STEP_COLORS.sigmas;
+    if (/guider/.test(t)) return STEP_COLORS.guider;
+    if (/noise/.test(t)) return STEP_COLORS.noise;
+    if (/taesd/.test(t)) return STEP_COLORS.taesd;
     return STEP_COLORS.default;
+}
+
+// v123：取节点第一个输入连接点的 ComfyUI 官方颜色（类型名正则匹配不到时的兜底）
+function stepColorForFirstConnection(node) {
+    if (!node) return null;
+    const colorMap = (app.canvas && app.canvas.default_connection_color_byType) || {};
+    // 优先取第一个输入连接点
+    const inputs = node.inputs || [];
+    for (let i = 0; i < inputs.length; i++) {
+        const t = inputs[i].type;
+        if (t && t !== '*' && colorMap[t]) return colorMap[t];
+    }
+    // 没有有效输入时取第一个输出连接点
+    const outputs = node.outputs || [];
+    for (let i = 0; i < outputs.length; i++) {
+        const t = outputs[i].type;
+        if (t && t !== '*' && colorMap[t]) return colorMap[t];
+    }
+    return null;
 }
 
 let promptData = null;   // 最近一次提交的 prompt 对象（class_type 兜底查）
@@ -567,6 +607,7 @@ function mountToToolbar() {
             position: absolute; left:0; top:0; bottom:0;
             width:0%; background:${blue};
             transition: width .15s linear;
+
         `;
         pill.appendChild(totalBar);
         // 柔和金采样条（铺满 pill，覆盖在蓝色上）
@@ -575,7 +616,7 @@ function mountToToolbar() {
         stepBar.style.cssText = `
             position: absolute; left:0; top:0; bottom:0;
             width:0%; background:${COLOR_STEP};
-            transition: width .15s linear;
+
             display: none;
         `;
         pill.appendChild(stepBar);
@@ -688,7 +729,7 @@ function centerNode(canvas, node) {
 // 行为探测坐标映射：ComfyUI 2.0（LiteGraph 2.x）为 screen = (pos + offset) * scale，
 // 1.x 为 screen = pos * scale + offset。用 convertOffsetToCanvas 对测试点算结果，
 // 与两种公式预测对比，误差小的胜出（实测 2.0 上 dNew=0、dOld 巨大）。
-let runTopGraph = null;   // 运行任务所属工作流顶层 graph（函数层：jumpToRunNode 需访问）
+let runTopGraph = null;
 let waitingRoomReturn = null; // v78：进入等待室前的 {graph, offset, scale}
 // v82：对当前所在等待区子图做一次"两行水平对齐 + 整体居中(scale=1)"，返回中心 key（尺寸未就绪返回 null）
 function recenterWaitingRoom() {
@@ -1385,14 +1426,16 @@ function updateCupBtnState() {
         const icon = document.getElementById("pt-cup-icon");
         if (icon) icon.style.color = found ? "rgba(255,255,255,1)" : "rgba(255,255,255,0.45)";
         if (inRoom) {
-            btn.style.boxShadow = "inset 0 0 0 2px " + (runButtonColor() || "#4f9cff");
+            // v136：按钮悬停时跳过颜色同步，避免:hover高亮色污染茶杯边框
+            const runBtn = findRunButton();
+            if (!runBtn || !runBtn.matches(':hover')) {
+                btn.style.boxShadow = "inset 0 0 0 2px " + (runButtonColor() || "#4f9cff");
+            }
         } else {
             btn.style.boxShadow = "none";
         }
     } catch (e) { /* ignore */ }
 }
-
-// v78：切换等待室（点茶杯图标：进/出）
 function toggleWaitingRoom() {
     try {
         const canvas = app.canvas;
@@ -1800,11 +1843,161 @@ app.registerExtension({
         const totalBar = () => $("pt-total-bar");
         const stepBar = () => $("pt-step-bar");
 
+        // v123：根据节点ID查找节点类型，支持子图内节点（格式：子图ID:节点ID）
+        function findNodeTypeById(id) {
+            if (!id) return null;
+            const graphs = [runTopGraph, app.graph].filter(g => g && g._nodes_by_id);
+            const sid = String(id);
+            // v127：优先用 execution_start 时的快照，防止切换工作流后 graph 被原地修改
+            // v135：快照查找也尝试循环复制key("3.xxx")和子图key("3:xxx")的原始key
+            if (nodeTypeSnapshot) {
+                if (nodeTypeSnapshot[sid]) return nodeTypeSnapshot[sid];
+                const dotKey = sid.includes('.') ? sid.split('.')[0] : null;
+                if (dotKey && nodeTypeSnapshot[dotKey]) return nodeTypeSnapshot[dotKey];
+                const colonKey = sid.includes(':') ? sid.split(':')[0] : null;
+                if (colonKey && nodeTypeSnapshot[colonKey]) return nodeTypeSnapshot[colonKey];
+            }
+            for (const g of graphs) {
+                // 1. 主图直接查找
+                if (g._nodes_by_id[sid]) return g._nodes_by_id[sid].type || null;
+                // 2. 子图格式 "子图ID:节点ID"
+                const colonIdx = sid.indexOf(':');
+                if (colonIdx >= 0) {
+                    const groupId = sid.substring(0, colonIdx);
+                    const innerId = sid.substring(colonIdx + 1);
+                    const groupNode = g._nodes_by_id[groupId];
+                    if (groupNode && groupNode.subgraph && groupNode.subgraph._nodes_by_id) {
+                        const innerNode = groupNode.subgraph._nodes_by_id[innerId];
+                        if (innerNode && innerNode.type) return innerNode.type;
+                    }
+                }
+                // 3. 遍历所有子图查找（循环体内节点的 executing 只有子图内ID，没有子图前缀）
+                for (const nid in g._nodes_by_id) {
+                    const n = g._nodes_by_id[nid];
+                    if (n && n.subgraph && n.subgraph._nodes_by_id && n.subgraph._nodes_by_id[sid]) {
+                        return n.subgraph._nodes_by_id[sid].type || null;
+                    }
+                }
+            }
+                        // v128：兜底用 promptData 的 class_type（切换工作流后 graph 被污染时用）
+            try {
+                const rec = findRec(sid);
+                const pd = (rec && rec.prompt) || promptData;
+                if (pd && typeof pd === 'object') {
+                    const candidates = [sid, sid.split(':')[0], sid.split('.')[0]];
+                    for (const ck of candidates) {
+                        const pk = pd[ck];
+                        if (pk && pk.class_type) return pk.class_type;
+                    }
+                }
+            } catch (e) {}
+return null;
+        }
+
+        // v123：根据节点ID查找节点对象（支持子图内节点），用于连接点组合判断颜色
+        function findNodeById(id) {
+            if (!id) return null;
+            const graphs = [runTopGraph, app.graph].filter(g => g && g._nodes_by_id);
+            const sid = String(id);
+            for (const g of graphs) {
+                if (g._nodes_by_id[sid]) return g._nodes_by_id[sid];
+                const colonIdx = sid.indexOf(':');
+                if (colonIdx >= 0) {
+                    const groupId = sid.substring(0, colonIdx);
+                    const innerId = sid.substring(colonIdx + 1);
+                    const groupNode = g._nodes_by_id[groupId];
+                    if (groupNode && groupNode.subgraph && groupNode.subgraph._nodes_by_id) {
+                        const innerNode = groupNode.subgraph._nodes_by_id[innerId];
+                        if (innerNode) return innerNode;
+                    }
+                }
+                // 遍历所有子图查找（循环体内节点的 executing 只有子图内ID）
+                for (const nid in g._nodes_by_id) {
+                    const n = g._nodes_by_id[nid];
+                    if (n && n.subgraph && n.subgraph._nodes_by_id && n.subgraph._nodes_by_id[sid]) {
+                        return n.subgraph._nodes_by_id[sid];
+                    }
+                }
+            }
+            return null;
+        }
+
         let errorTimer = null;
         let successTimer = null;
         let totalNodes = 0;      // 全图节点数（prompt.output）
         let doneCount = 0;       // executing 切换计数（rgthree 同款）
         let currentKey = null;   // 节点显示去抖
+        // v122：运行次数统计
+        let submitCount = 0;     // 提交的工作流数量（多工作流时忽略循环，只看提交数）
+        let currentSubmitIndex = 0; // 当前执行到第几个工作流
+        let nodeExecCount = {};  // 每个节点的执行次数（单工作流循环时用）
+        let maxNodeExecCount = 0; // 最大节点执行次数
+        let currentLoopTotal = 0; // v123：当前工作流的循环总数（0=非循环）
+        let currentLoopIteration = 0; // v126：当前循环迭代次数，通过ForLoopStart执行跟踪
+        let lastLoopStartKey = null; // v126：上一次循环开始节点key，用于去重
+        let lastLoopStartTime = 0; // v126：上一次循环开始节点执行时间戳
+        let isOfficialLoopWorkflow = false; // v131：标记当前是否为官方循环（StartLoop），v130兜底只对官方循环生效
+        let nodeTypeSnapshot = {}; // v127：execution_start时的节点id→type快照，防止切换工作流后graph被原地修改导致类型查找错误
+        let currentShownText = ""; // 当前显示的纯节点名（不含计数，供提交时动态更新）
+        let inQueuePrompt = false; // 是否在 queuePrompt 调用中（避免 fetch 重复计数）
+        // v137：虚拟总进度计时（三段式：0-10s到50%，10-20s到80%，20s后极慢到99%）
+        let virtualProgressStartTime = 0;
+        let loopVirtualStartTime = 0; // 当前循环迭代内的虚拟进度计时
+
+        // v122：通过 /queue API 查询实际队列数量，更新 submitCount（只增不减）
+        // 轮询多次，确保新提交的工作流已经入队后再更新显示
+        // v122：更新计数显示（从当前label文本提取纯节点名，不依赖currentShownText）
+        function updateCountDisplay() {
+            try {
+                const labelEl = document.getElementById('pt-run-label');
+                if (!labelEl) return;
+                const currentText = labelEl.textContent || '';
+                if (!currentText || currentText === '实时运行节点' || currentText === '运行初始化…' || currentText === '完成') return;
+                // 提取纯节点名（去掉计数前缀，支持 "X/Y • "、"X/Y/Z • " 两种格式）
+                const pureName = currentText.replace(/^\d+(\/\d+){1,2}\s*[•·]\s*/, '');
+                if (pureName) {
+                    if (currentLoopTotal > 1 && submitCount > 1) {
+                        // 循环工作流 + 多提交：新格式 总数/序号/循环数，提取第三个数字作为循环数
+                        const parts = currentText.match(/^(\d+)\/(\d+)\/(\d+)/);
+                        const loopNum = parts ? parts[3] : '1';
+                        show(submitCount + "/" + Math.max(1, currentSubmitIndex) + "/" + loopNum + " • " + pureName, "left");
+                    } else if (currentLoopTotal > 1 && submitCount <= 1) {
+                        // 循环工作流 + 单提交：新格式 循环总数/循环数，提取第二个数字作为循环数
+                        const parts = currentText.match(/^(\d+)\/(\d+)/);
+                        const loopNum = parts ? parts[2] : '1';
+                        show(currentLoopTotal + "/" + loopNum + " • " + pureName, "left");
+                    } else if (submitCount > 1) {
+                        // 非循环 + 多提交：新格式 总数/序号
+                        show(submitCount + "/" + Math.max(1, currentSubmitIndex) + " • " + pureName, "left");
+                    }
+                }
+            } catch (e) {}
+        }
+
+        function updateSubmitCountFromQueue() {
+            let checks = 0;
+            const doCheck = function() {
+                try {
+                    fetch("/queue").then(function(r) { return r.json(); }).then(function(q) {
+                        try {
+                            const running = (q && q.queue_running && q.queue_running.length) || 0;
+                            const pending = (q && q.queue_pending && q.queue_pending.length) || 0;
+                            const total = running + pending;
+                            if (total > submitCount) submitCount = total;
+                            // 反推当前序号
+                            if (submitCount > 0 && total > 0) {
+                                currentSubmitIndex = submitCount - total + 1;
+                            }
+                            // 动态更新显示
+                            updateCountDisplay();
+                        } catch (e) {}
+                    }).catch(function() {});
+                } catch (e) {}
+                checks++;
+                if (checks < 4) setTimeout(doCheck, 400);
+            };
+            doCheck();
+        }
 
         let lastPct = 0;         // 单调钳制
         let blueColor = runButtonColor();
@@ -1820,7 +2013,8 @@ app.registerExtension({
             const pill = document.getElementById(INDICATOR_ID);
             if (!pill) return;
             const runBtn = findRunButton();
-            if (runBtn) {
+            // v136：按钮悬停时跳过同步，避免:hover高亮色污染进度条
+            if (runBtn && !runBtn.matches(':hover')) {
                 const c = runButtonColor();
                 const tb = document.getElementById("pt-total-bar");
                 if (tb && !document.getElementById("pt-run-label")?.textContent.startsWith("执行出错")) {
@@ -1837,6 +2031,12 @@ app.registerExtension({
                 errorColor = cancelButtonColor();
             }
         }, 2000);
+        // v137：定期更新虚拟总进度（基于时间，需要定时刷新）
+        setInterval(() => {
+            if (virtualProgressStartTime > 0) {
+                updateTotal();
+            }
+        }, 500);
 
         // ---- rAF 渲染节流：合并进度条宽度写入 ----
         let pendingTotal = null;
@@ -1866,9 +2066,27 @@ app.registerExtension({
             pendingStep = Math.max(0, Math.min(100, Math.round(p)));
             scheduleBars();
         };
+        let currentStepColor = null; // 缓存当前进度条颜色
         const setStepColor = (color) => {
             const bar = stepBar();
-            if (bar && bar.style.background !== color) bar.style.background = color;
+            if (!bar) return;
+            // 把目标颜色转成 rgb 格式
+            let targetRgb = color;
+            try {
+                const r = parseInt(color.slice(1, 3), 16);
+                const g = parseInt(color.slice(3, 5), 16);
+                const b = parseInt(color.slice(5, 7), 16);
+                targetRgb = 'rgb(' + r + ', ' + g + ', ' + b + ')';
+            } catch (e) {}
+            // 正则解析当前元素背景色，兼容 rgb(r,g,b) 和 rgba(r,g,b,a) 格式
+            const currentBg = bar.style.backgroundColor || '';
+            const m = currentBg.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/);
+            const currentRgb = m ? ('rgb(' + m[1] + ', ' + m[2] + ', ' + m[3] + ')') : '';
+            // 只有当 DOM 实际颜色与目标不同时才更新（同时更新缓存）
+            if (currentRgb !== targetRgb) {
+                currentStepColor = color;
+                bar.style.backgroundColor = targetRgb;
+            }
         };
         // v108：启动模拟进度（无真实进度事件的节点）
         const startSimProgress = () => {
@@ -1924,6 +2142,7 @@ app.registerExtension({
             }, 150);
         };
         const showStep = (on) => {
+            if (!on) currentStepColor = null;
             const bar = stepBar();
             if (bar) bar.style.display = on ? "block" : "none";
         };
@@ -1972,7 +2191,7 @@ app.registerExtension({
                     } else {
                         el.style.boxShadow = "inset 0 0 0 2px rgba(" + rgb + ", 1)";
                     }
-                }, 500);
+                }, 800); // v121：闪烁间隔从500ms调慢到800ms
             } else {
                 pill.classList.remove("pt-init");
                 if (initBlinkIv) { clearInterval(initBlinkIv); initBlinkIv = null; }
@@ -1987,8 +2206,13 @@ app.registerExtension({
             lastPct = 0;
             stopSimProgress(); // v108：停止模拟进度
             runTopGraph = null;
+            nodeTypeSnapshot = {};
+
             runWorkflowHash = "";
             keyTitleCache = {};
+            // v123：重置节点执行次数（submitCount 不在此重置，避免多工作流间隔>1.5s被误清）
+            nodeExecCount = {};
+            maxNodeExecCount = 0;
             pendingTotal = null;
             pendingStep = null;
             if (rafId != null) {
@@ -2014,10 +2238,25 @@ app.registerExtension({
             show("实时运行节点", "center");
             showStep(false);
         };
+        // v137：三段式虚拟进度计算函数
+        const calcVirtualPct = (startTime) => {
+            if (!startTime) return 0;
+            const elapsed = (Date.now() - startTime) / 1000;
+            if (elapsed <= 10) return Math.min(50, elapsed * 5);              // 0-10s: 0%->50%
+            if (elapsed <= 30) return Math.min(75, 50 + (elapsed - 10) * 1.25); // 10-30s: 50%->75%
+            return Math.min(99, 75 + (elapsed - 30) * 0.08);                  // 30s+: 75%->99%
+        };
+
         const updateTotal = () => {
-            if (totalNodes <= 0) return;
-            const pct = (doneCount / totalNodes) * 100;
-            if (pct > lastPct) lastPct = pct;
+            if (currentLoopTotal > 1) {
+                const innerVirtual = calcVirtualPct(loopVirtualStartTime) / 100;
+                const loopPct = Math.min(100, ((currentLoopIteration - 1) + innerVirtual) / currentLoopTotal * 100);
+                if (loopPct > lastPct) lastPct = loopPct;
+                setTotal(lastPct);
+                return;
+            }
+            const vPct = calcVirtualPct(virtualProgressStartTime);
+            if (vPct > lastPct) lastPct = vPct;
             setTotal(lastPct);
         };
 
@@ -2037,7 +2276,13 @@ app.registerExtension({
             api.__pt_ri_qp = true;
             const orig = api.queuePrompt;
             api.queuePrompt = async function (...args) {
+                // v122：在调用原函数前设置标志位和计数，确保 orig 内部调用 fetch 时不会重复计数
+                inQueuePrompt = true;
+                submitCount++;
+                // v122：实时更新计数显示
+                updateCountDisplay();
                 const res = await orig.apply(this, args);
+                inQueuePrompt = false;
                 // v102：提交时不再 setInit(true)——排队中的工作流不应闪烁，
                 // 只在 execution_start（实际开始执行）时才进入初始化闪烁状态。
                 // v73：连续提交不同工作流时无条件更新为最新（不再 if 保护）
@@ -2092,6 +2337,8 @@ app.registerExtension({
                                 // v73：连续提交不同工作流时无条件更新为最新
                                 runTopGraph = app.graph;
                                 runWorkflowHash = location.hash;
+                                // v123：移除 fetch 中的计数，避免 inQueuePrompt 时序问题导致重复计数
+                                // 批量提交由 execution_start 中的 /queue 轮询补全 submitCount
                                 // v72：提交瞬间扫描任务工作流 graph 缓存子图容器名
                                 try { subgraphNames = buildSubgraphNames(app.graph); } catch (e) {}
                                 // v74：记录到多工作流历史（按 hash 去重）
@@ -2119,6 +2366,11 @@ app.registerExtension({
                 return;
             }
             const key = String(nodeId);
+            // 从循环复制的key中提取原始节点key（第一个.前面的部分，如 "5.1234567890" -> "5"）
+            let displayNode = key;
+            if (key.includes('.')) {
+                displayNode = key.split('.')[0];
+            }
             if (currentKey !== null && currentKey !== key) {
                 doneCount++;
                 updateTotal();
@@ -2130,18 +2382,76 @@ app.registerExtension({
                 activeWorkflowHash = (recNow && recNow.hash) ? recNow.hash : runWorkflowHash;
             } catch (e) { activeWorkflowHash = runWorkflowHash; }
             setInit(false);
-            showStep(false);
+            // v137：第一个节点开始执行时启动虚拟进度计时（初始化阶段不计入）
+            if (!virtualProgressStartTime) virtualProgressStartTime = Date.now();
+            if (!loopVirtualStartTime) loopVirtualStartTime = Date.now();
+            // v126：检测ForLoopStart执行，跟踪当前循环迭代次数
+            try {
+                const ctForLoop = findNodeTypeById(key) || '';
+
+                if (/ForLoopStart|StartLoop/i.test(ctForLoop)) {
+
+
+                    // v126：首次遇到循环开始节点时，从其widgets读取循环总数（不依赖execution_start的预测，避免切换工作流残留）
+                    if (currentLoopTotal === 0) {
+                        try {
+                            const loopNodeObj = findNodeById(key) || findNodeById(displayNode);
+                            if (loopNodeObj && loopNodeObj.widgets) {
+                                for (const lw of loopNodeObj.widgets) {
+                                    if (lw.name === 'total' || lw.name === 'loops' || lw.name === 'loop_count' || lw.name === 'count' || lw.name === 'mode.num_iterations') {
+                                        if (lw.value > 0) { currentLoopTotal = parseInt(lw.value); break; }
+                                    }
+                                }
+                            }
+                        } catch(e) {}
+                    }
+                    const isOfficialLoop = /^StartLoop$/i.test(ctForLoop);
+                    if (isOfficialLoop) {
+                        isOfficialLoopWorkflow = true;
+                        // v132：官方循环 StartLoop 每次循环触发2次且循环复制后key不同，去重不可靠
+                        // 完全依赖 v130 maxNodeExecCount 兜底推断循环迭代次数，这里不递增
+                    } else {
+                        currentLoopIteration++;
+                        loopVirtualStartTime = Date.now(); // v137：新循环迭代开始，重置循环内虚拟进度计时
+                        doneCount = 0;
+                    }
+                }
+
+ // v126：新循环开始时重置节点计数
+            } catch (e) {}
+            // v130：用最大节点执行次数兜底推断循环迭代次数（仅官方循环 StartLoop 可能不触发时）
+            try {
+            } catch(e) {}
+            if (isOfficialLoopWorkflow && currentLoopTotal > 0 && maxNodeExecCount > currentLoopIteration) {
+                currentLoopIteration = Math.min(currentLoopTotal, maxNodeExecCount);
+                loopVirtualStartTime = Date.now(); // v137：官方循环新迭代开始，重置循环内虚拟进度计时
+                doneCount = 0; // v134：新循环开始时重置内部进度，避免上一循环doneCount残留导致进度跳变
+            }
+            showStep(true); // v122：executing时直接显示进度条，避免隐藏再显示的闪烁
+            setStep(0); // v126：节点切换时重置进度为0，已知真实进度节点立即显示空进度条等待真实进度
             // v108：根据当前节点类型设置进度条颜色（只用class_type，没有就灰色）
             try {
-                const recForColor = findRec(key);
-                const pForColor = (recForColor && recForColor.prompt) || promptData;
-                let ctForColor = null;
-                if (pForColor) {
-                    const pk = pForColor[key] || pForColor[key.split(":")[0]];
-                    if (pk && pk.class_type) ctForColor = pk.class_type;
+                // v122：优先用当前画布节点的type（最准确，避免循环复制时prompt中key与class_type不匹配）
+                let ctForColor = findNodeTypeById(key) || findNodeTypeById(displayNode);
+                // 画布中找不到时（如动态复制的节点），回退到prompt数据的class_type
+                if (!ctForColor) {
+                    try {
+                        const recForColor = findRec(key);
+                        const pForColor = (recForColor && recForColor.prompt) || promptData;
+                        if (pForColor) {
+                            const pk = pForColor[key] || pForColor[displayNode] || pForColor[key.split(":")[0]];
+                            if (pk && pk.class_type) ctForColor = pk.class_type;
+                        }
+                    } catch (e) {}
                 }
-                // 只从prompt记录取class_type，获取不到就用灰色，不从画布节点推断
-                setStepColor(stepColorForType(ctForColor));
+                // v123：先按类型名判断，匹配不到默认色时用连接点组合判断（子图内UUID节点）
+                let stepColorVal = stepColorForType(ctForColor);
+                if (stepColorVal === STEP_COLORS.default) {
+                    const nodeObjForColor = findNodeById(key) || findNodeById(displayNode);
+                    const connColorVal = stepColorForFirstConnection(nodeObjForColor);
+                    if (connColorVal) stepColorVal = connColorVal;
+                }
+                setStepColor(stepColorVal);
                 // v108：把class_type传给模拟进度判断，有真实进度的节点不启动模拟
                 scheduleSimProgress(ctForColor);
             } catch (e) {
@@ -2151,13 +2461,47 @@ app.registerExtension({
             // v67：在任务工作流中解析并缓存节点名；切走后新节点回退 class_type
             // v68：纯数字（解析失败）不缓存，切回任务工作流后能重新解析出真实节点名
             if (!(key in keyTitleCache) || /^[\d:]+$/.test(keyTitleCache[key])) {
-                keyTitleCache[key] = nodeName(key, app.graph);
+                keyTitleCache[key] = nodeName(key, runTopGraph || app.graph);
+            }
+            // v122：统计当前节点的执行次数（单工作流循环时用）
+            nodeExecCount[key] = (nodeExecCount[key] || 0) + 1;
+            // v132：循环控制节点(StartLoop/EndLoop/ForLoopStart/ForLoopEnd)每次触发多次，不计入maxNodeExecCount，避免v130兜底错误
+            try {
+                const ctForCount = findNodeTypeById(key) || '';
+                const isLoopControlNode = /^(StartLoop|EndLoop|ForLoopStart|ForLoopEnd)$/i.test(ctForCount);
+                const maxBefore = maxNodeExecCount;
+                if (!isLoopControlNode && nodeExecCount[key] > maxNodeExecCount) {
+                    maxNodeExecCount = nodeExecCount[key];
+                }
+            } catch(e) {
+                if (nodeExecCount[key] > maxNodeExecCount) maxNodeExecCount = nodeExecCount[key];
             }
             // v70：show 输入兜底，任何解析异常回退原始 key，保证 label 一定更新
             let shownText = keyTitleCache[key] || "";
             if (!shownText) {
                 try { shownText = nodeName(key, runTopGraph || app.graph); }
                 catch (e) { shownText = String(key); }
+            }
+            // v122：保存纯节点名（不含计数），供后续提交新工作流时动态更新显示
+            currentShownText = shownText;
+            // v123：计数显示
+            // 循环工作流（currentLoopTotal > 0）+ 单提交："循环总数/循环数 • 节点名"
+            // 循环工作流 + 多提交："总数/当前序号/循环数 • 节点名"
+            // 非循环 + 多提交："总数/当前序号 • 节点名"
+            // 单提交 + 非循环：只显示节点名
+            // v126：防止上一次运行残留的currentSubmitIndex导致先显示2/x再跳回1/x
+            if (submitCount > 0 && currentSubmitIndex > submitCount) currentSubmitIndex = 1;
+            if (currentLoopTotal > 1) { // v137：循环次数>1才显示循环计数，=1时和非循环一样
+                // v126：循环体外节点（只执行一次）显示循环总数/循环总数，循环体内节点显示实际次数
+                const loopNum = Math.min(currentLoopTotal, currentLoopIteration > 0 ? currentLoopIteration : (nodeExecCount[key] || 1));
+                if (submitCount > 1) {
+                    const submitIdx = Math.max(1, currentSubmitIndex);
+                    shownText = submitCount + "/" + submitIdx + "/" + loopNum + " • " + shownText;
+                } else {
+                    shownText = currentLoopTotal + "/" + loopNum + " • " + shownText;
+                }
+            } else if (submitCount > 1) {
+                shownText = submitCount + "/" + Math.max(1, currentSubmitIndex) + " • " + shownText;
             }
             show(shownText, "left");
             const pill = $("pt-run-indicator");
@@ -2227,23 +2571,29 @@ app.registerExtension({
                                 break;
                             }
                         }
-                        if (runningNode && runningNode.max > 0) {
+                        // v123：控制流节点（ForLoopEnd/LoopEnd等）频繁发进度事件，若非当前节点则忽略，避免覆盖当前节点颜色
+                        // 其他节点（包括子图内节点）正常处理，不限制必须等于currentKey
+                        const runningId = String(runningNode ? (runningNode.display_node_id || runningNode.node_id || '') : '');
+                        const runningCt = findNodeTypeById(runningId) || '';
+                        if (!runningCt) {
+                            try {
+                                const recR = findRec(runningId);
+                                const pR = (recR && recR.prompt) || promptData;
+                                if (pR) {
+                                    const pkR = pR[runningId] || pR[String(runningId).split(':').pop()];
+                                    if (pkR && pkR.class_type) runningCt = pkR.class_type;
+                                }
+                            } catch (e) {}
+                        }
+                        const isControlFlowEnd = /ForLoopEnd|LoopEnd|EndLoop/i.test(runningCt);
+                        const isCurrentNode = (runningId === String(currentKey || '')) ||
+                            (currentKey && runningId.split(":").pop() === String(currentKey).split(":").pop());
+                        if (runningNode && runningNode.max > 0 && isCurrentNode) {
                             hasRealProgress = true; // 标记收到真实进度，停止模拟
                             stopSimProgress();
                             showStep(true);
                             setStep((runningNode.value / runningNode.max) * 100);
-                            // 根据节点类型设置颜色（只用class_type，没有就灰色）
-                            try {
-                                const displayId = runningNode.display_node_id || runningNode.node_id;
-                                const recForColor = findRec(String(displayId));
-                                const pForColor = (recForColor && recForColor.prompt) || promptData;
-                                let ctForColor = null;
-                                if (pForColor && displayId) {
-                                    const pk = pForColor[displayId] || pForColor[String(displayId).split(":")[0]];
-                                    if (pk && pk.class_type) ctForColor = pk.class_type;
-                                }
-                                setStepColor(stepColorForType(ctForColor));
-                            } catch (e) { /* 保持当前颜色 */ }
+                            // v123：progress_state 只更新进度值，不设置颜色（颜色只在 executing 节点切换时设置一次，避免频繁重绘闪烁）
                         }
                     } else if (data.type === "execution_cached") {
                         const d = data.data || {};
@@ -2261,6 +2611,125 @@ app.registerExtension({
         // ---- 状态事件 ----
         api.addEventListener("execution_start", () => {
             doneCount = 0;
+// v122：重置节点执行次数统计（单工作流循环）
+            nodeExecCount = {};
+            currentLoopIteration = 0; // v126：重置循环迭代次数
+            isOfficialLoopWorkflow = false; // v131：重置官方循环标记
+            // v137：重置虚拟进度计时
+            virtualProgressStartTime = 0; // v137：初始化阶段不计时，第一个executing时才开始
+            loopVirtualStartTime = 0;
+            // v127：构建节点 id→type 快照，防止切换工作流后 graph 被原地修改导致类型查找错误
+            nodeTypeSnapshot = {};
+            // v135：优先从 promptData 构建快照（当前执行的工作流数据，不受切换工作流影响）
+            try {
+                if (promptData && typeof promptData === 'object') {
+                    for (const pid in promptData) {
+                        const pnode = promptData[pid];
+                        if (pnode && pnode.class_type) nodeTypeSnapshot[String(pid)] = pnode.class_type;
+                    }
+                }
+            } catch (e) {}
+            try {
+                const snapGraph = runTopGraph || (app && app.graph);
+                if (snapGraph && snapGraph._nodes) {
+                    for (const n of snapGraph._nodes) {
+                        if (n && n.id != null && n.type) {
+                            const sid = String(n.id); if (!nodeTypeSnapshot[sid]) nodeTypeSnapshot[sid] = n.type; // v135：不覆盖promptData
+                        }
+                        // 子图内节点也保存（循环体内节点 executing 只有子图内ID）
+                        if (n && n.subgraph && n.subgraph._nodes) {
+                            for (const sn of n.subgraph._nodes) {
+                                if (sn && sn.id != null && sn.type) {
+                                    const sid2 = String(sn.id); if (!nodeTypeSnapshot[sid2]) nodeTypeSnapshot[sid2] = sn.type; // v135：不覆盖promptData
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (e) {}
+            maxNodeExecCount = 0;
+            // v123：检测当前工作流是否循环，读取循环总数
+            currentLoopTotal = 0;
+            try {
+                // 优先从 promptData 检测，兜底从画布节点检测
+                let detectSource = null;
+                if (promptData && typeof promptData === 'object' && Object.keys(promptData).length > 0) {
+                    detectSource = 'prompt';
+                } else if (runTopGraph && runTopGraph._nodes) {
+                    detectSource = 'canvas';
+                }
+                if (detectSource === 'prompt') {
+                    for (const k in promptData) {
+                        const node = promptData[k];
+                        if (node && node.class_type && /ForLoopStart|LoopStart|StartLoop/i.test(node.class_type)) {
+                            const inputs = node.inputs || {};
+                            const loops = inputs.total || inputs.loops || inputs.loop_count || inputs.count || inputs['mode.num_iterations'] || 0;
+                            if (loops > 0) currentLoopTotal = parseInt(loops);
+                            // v131：检测到官方循环 StartLoop 时标记
+                            if (/StartLoop|LoopStart/i.test(node.class_type) && !/ForLoopStart/i.test(node.class_type)) {
+                                isOfficialLoopWorkflow = true;
+                            }
+                            break;
+                        }
+                    }
+                } else if (detectSource === 'canvas') {
+                    for (const n of runTopGraph._nodes) {
+                        if (n && n.type && /ForLoopStart|LoopStart|StartLoop/i.test(n.type)) {
+                            let loops = 0;
+                            if (n.widgets) {
+                                for (const w of n.widgets) {
+                                    if (w.name === 'total' || w.name === 'loops' || w.name === 'loop_count' || w.name === 'count' || w.name === 'mode.num_iterations') {
+                                        loops = w.value;
+                                        break;
+                                    }
+                                }
+                            }
+                            if (loops > 0) currentLoopTotal = parseInt(loops);
+                            // v131：检测到官方循环 StartLoop 时标记
+                            if (/StartLoop|LoopStart/i.test(n.type) && !/ForLoopStart/i.test(n.type)) {
+                                isOfficialLoopWorkflow = true;
+                            }
+                            break;
+                        }
+                    }
+                }
+            } catch (e) {}
+
+
+            // v133：不重置为1，根据submitCount推断序号——同一批下一个工作流递增，新一批重置为1
+            // 避免轮询延迟导致第二个工作流前几个节点显示错误序号
+            if (submitCount > 0 && currentSubmitIndex < submitCount) {
+                currentSubmitIndex++;
+            } else {
+                currentSubmitIndex = 1;
+            }
+            // v122：查询实际队列数量，反推当前工作流序号
+            // 总提交数 submitCount 取队列历史最大值；当前序号 = 总提交数 - 队列剩余 + 1
+            // 批量提交时部分工作流可能延迟入队，轮询6次（间隔800ms）取最大值
+            try {
+                let qChecks = 0;
+                const checkQueue = function() {
+                    fetch("/queue").then(function(r) { return r.json(); }).then(function(q) {
+                        try {
+                            const running = (q && q.queue_running && q.queue_running.length) || 0;
+                            const pending = (q && q.queue_pending && q.queue_pending.length) || 0;
+                            const total = running + pending;
+                            // v123：移除"新一批开始"重置逻辑——reset() 已在队列为空 1.5s 后重置 submitCount
+                            // 此处只增不减，避免多工作流执行中（运行中提交新工作流）被错误清零
+                            if (total > submitCount) submitCount = total;
+                            // 反推当前序号：总提交数 - 队列剩余 + 1
+                            if (submitCount > 0 && total > 0) {
+                                currentSubmitIndex = submitCount - total + 1;
+                            }
+                            // 动态更新显示
+                            updateCountDisplay();
+                        } catch (e) {}
+                    }).catch(function() {});
+                    qChecks++;
+                    if (qChecks < 6) setTimeout(checkQueue, 800);
+                };
+                checkQueue();
+            } catch (e) {}
             // v70：记录进入前的进行中节点（异常乱序时不覆盖其显示）
             const hadKey = currentKey;
             currentKey = null;
@@ -2279,13 +2748,40 @@ app.registerExtension({
 
         api.addEventListener("execution_success", () => {
             stopSimProgress(); // v108：停止模拟进度
+            currentKey = null; // v121：确保reset能执行，避免"完成"一直显示
+            // v137：提交完成，停止虚拟进度计时，总进度直接到100%
+            virtualProgressStartTime = 0;
+            loopVirtualStartTime = 0;
+            lastPct = 100;
             pendingTotal = 100;
             scheduleBars();
             showStep(false);
-            show("完成", "center");
             clearTimeout(successTimer);
             clearTimeout(errorTimer);
-            successTimer = setTimeout(reset, 1500);
+            // v123：查询队列——多工作流（队列非空）时不显示"完成"，直接切下一个；
+            // 只有全部跑完（队列为空）才显示"完成"1.5秒，避免长短不一
+            try {
+                fetch('/queue').then(function(r) { return r.json(); }).then(function(q) {
+                    const running = (q && q.queue_running && q.queue_running.length) || 0;
+                    const pending = (q && q.queue_pending && q.queue_pending.length) || 0;
+                    if (running + pending === 0) {
+                        // 全部跑完，显示"完成"
+                        show("完成", "center");
+                        submitCount = 0;
+                        currentSubmitIndex = 0;
+                        successTimer = setTimeout(reset, 1500);
+                    } else {
+                        // 还有下一个工作流，不显示"完成"，直接重置准备切换
+                    }
+                }).catch(function() {
+                    // 查询失败时兜底显示"完成"
+                    show("完成", "center");
+                    successTimer = setTimeout(reset, 1500);
+                });
+            } catch (e) {
+                show("完成", "center");
+                successTimer = setTimeout(reset, 1500);
+            }
         });
 
         // 中断（手动取消）不改变进度条颜色——只显示"已中断"后复位
@@ -2300,6 +2796,8 @@ app.registerExtension({
 
         // 出错 -> 红X按钮同款红 + "执行出错"
         api.addEventListener("execution_error", () => {
+            stopSimProgress(); // v121：报错后停止模拟进度
+            currentKey = null; // v121：确保reset能执行
             setInit(false);
             setBarColor(errorColor);
             show("执行出错", "left");

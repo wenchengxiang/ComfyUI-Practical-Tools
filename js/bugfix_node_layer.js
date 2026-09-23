@@ -7,11 +7,12 @@
 // z-index 高，就会显示在覆盖节点之上（上浮）。
 // Node 1.0 下绘制顺序由 _nodes 决定，与执行顺序无关，所以没有此问题。
 //
-// 解决方案：
-// 用 CSS !important + CSS 变量从样式层面强制 z-index = _nodes 位置，
-// Vue 的内联样式（非 !important）无法覆盖 !important 的 CSS 规则。
+// 解决方案（v3）：
+// 用 CSS !important + CSS 变量从样式层面强制 z-index，
+// 非折叠节点整体加 10000 偏移，确保非折叠节点永远在折叠节点之上（解决粘贴后覆盖关系错乱）。
+// 同一类型内按 _nodes 位置排序，点击/拖动置顶仍然生效。
 // 1. 注入样式：.pt-layer-fix .lg-node { z-index: var(--pt-z) !important; }
-// 2. 加载后 800ms 全量设置 --pt-z = _nodes 位置
+// 2. 加载后 800ms 全量设置 --pt-z
 // 3. MutationObserver 持续监听新节点和 style 变化，保持变量正确
 
 (function() {
@@ -26,7 +27,8 @@
         const style = document.createElement('style');
         style.id = 'pt-layer-fix-style';
         style.textContent =
-            '.' + CSS_CLASS + ' .lg-node { z-index: var(' + CSS_VAR + ') !important; }';
+            '.' + CSS_CLASS + ' .lg-node { z-index: var(' + CSS_VAR + ') !important; }' +
+            '.' + CSS_CLASS + ' .lg-node.pt-pinned { z-index: 99999 !important; }';
         document.head.appendChild(style);
         document.documentElement.classList.add(CSS_CLASS);
     }
@@ -48,7 +50,10 @@
         const graph = getActiveGraph();
         const pos = graph._nodes.indexOf(node);
         if (pos >= 0) {
-            el.style.setProperty(CSS_VAR, String(pos));
+            // v3：非折叠节点整体 z-index 加 10000 偏移，确保非折叠节点永远在折叠节点之上
+            const isCollapsed = node.collapsed === true;
+            const z = isCollapsed ? pos : (10000 + pos);
+            el.style.setProperty(CSS_VAR, String(z));
         }
     }
 
@@ -76,7 +81,21 @@
 
     // 点击/拖动节点置顶：CSS !important 覆盖了原生置顶，需主动移到 _nodes 末尾
     function setupNodeToFront() {
+        function pinNodeEl(node) {
+            try {
+                var allPinned = document.querySelectorAll('.pt-layer-fix .lg-node.pt-pinned');
+                for (var i = 0; i < allPinned.length; i++) {
+                    allPinned[i].classList.remove('pt-pinned');
+                }
+                if (node && node.id !== undefined && node.id !== null) {
+                    var el = document.querySelector('[data-node-id="' + node.id + '"]');
+                    if (el) el.classList.add('pt-pinned');
+                }
+            } catch (err) {}
+        }
+
         function bringToFront(node) {
+            pinNodeEl(node);
             const graph = getActiveGraph();
             const index = graph._nodes.indexOf(node);
             if (index < 0 || index === graph._nodes.length - 1) return;
