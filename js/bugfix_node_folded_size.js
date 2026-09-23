@@ -71,9 +71,10 @@
     }
 
     function isNormalSize(size) {
-        if (!size || !size.height) return false;
+        if (!size || !size.height || !size.width) return false;
         const h = parseInt(size.height);
-        return !isNaN(h) && h > 50;
+        const w = parseInt(size.width);
+        return !isNaN(h) && !isNaN(w) && h > 60 && w > 80;
     }
 
     function getSavedSize(nodeId) {
@@ -94,7 +95,7 @@
                 const result = originalCollapse.call(this, force);
                 if (savedSize) {
                     startForcing(nodeId, savedSize);
-                    restoreUntil[nodeId] = Date.now() + 1500;
+                    restoreUntil[nodeId] = Date.now() + 3000;
                 }
                 return result;
             }
@@ -131,8 +132,9 @@
             const isCollapsed = !!(node.flags && node.flags.collapsed);
             const wasCollapsed = !!lastCollapsedState[nodeId];
 
-            // 持续记录最后一个正常大小（非强制状态下）
-            if (isNormalSize(cssSize) && !forcingNodes[nodeId] && !restoreUntil[nodeId]) {
+            // 持续记录最后一个正常大小（非强制状态下，且节点必须是展开的）
+            // 修复：进入子图回来后折叠节点的中间态可能把 lastGoodSizes 覆盖成最小尺寸
+            if (!isCollapsed && isNormalSize(cssSize) && !forcingNodes[nodeId] && !restoreUntil[nodeId]) {
                 lastGoodSizes[nodeId] = cssSize;
             }
 
@@ -142,7 +144,7 @@
                 if (savedSize) {
                     startForcing(nodeId, savedSize);
                 }
-                restoreUntil[nodeId] = now + 1500;
+                restoreUntil[nodeId] = now + 3000;
             }
 
             // 备份：检测刚折叠
@@ -158,10 +160,18 @@
 
             lastCollapsedState[nodeId] = isCollapsed;
 
-            // 恢复窗口结束：停止强制
+            // 恢复窗口结束：检查大小是否正常，不正常则重新强制（防止 Vue 异步设置最小尺寸）
             if (restoreUntil[nodeId] && now >= restoreUntil[nodeId]) {
-                stopForcing(nodeId);
-                restoreUntil[nodeId] = null;
+                const currentSize = getCssSize(nodeEl);
+                const savedSize = getSavedSize(nodeId);
+                if (!isCollapsed && savedSize && !isNormalSize(currentSize)) {
+                    // 大小仍不正常，延长强制窗口
+                    startForcing(nodeId, savedSize);
+                    restoreUntil[nodeId] = now + 2000;
+                } else {
+                    stopForcing(nodeId);
+                    restoreUntil[nodeId] = null;
+                }
             }
 
             // 恢复窗口内如果节点被折叠，立即停止

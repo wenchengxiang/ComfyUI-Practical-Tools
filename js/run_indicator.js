@@ -2614,6 +2614,9 @@ return null;
 // v122：重置节点执行次数统计（单工作流循环）
             nodeExecCount = {};
             currentLoopIteration = 0; // v126：重置循环迭代次数
+            currentLoopTotal = 0; // v139：重置循环总数，避免中断后立即运行新工作流时残留
+            lastLoopStartKey = null; // v139：重置循环开始节点key
+            lastLoopStartTime = 0; // v139：重置循环开始时间
             isOfficialLoopWorkflow = false; // v131：重置官方循环标记
             // v137：重置虚拟进度计时
             virtualProgressStartTime = 0; // v137：初始化阶段不计时，第一个executing时才开始
@@ -2787,22 +2790,49 @@ return null;
         // 中断（手动取消）不改变进度条颜色——只显示"已中断"后复位
         api.addEventListener("execution_interrupted", () => {
             stopSimProgress(); // v108：停止模拟进度
+            virtualProgressStartTime = 0; // v139：中断时停止虚拟总进度
+            loopVirtualStartTime = 0; // v139：中断时停止循环虚拟进度
+            currentKey = null; // v139：确保reset能执行
             setInit(false);
             show("已中断", "left");
             clearTimeout(successTimer);
             clearTimeout(errorTimer);
+            // v139：查询队列，队列为空时重置submitCount，避免中断后立即运行累加计数
+            try {
+                fetch('/queue').then(function(r) { return r.json(); }).then(function(q) {
+                    const running = (q && q.queue_running && q.queue_running.length) || 0;
+                    const pending = (q && q.queue_pending && q.queue_pending.length) || 0;
+                    if (running + pending === 0) {
+                        submitCount = 0;
+                        currentSubmitIndex = 0;
+                    }
+                }).catch(function() {});
+            } catch (e) {}
             errorTimer = setTimeout(reset, 1500);
         });
 
         // 出错 -> 红X按钮同款红 + "执行出错"
         api.addEventListener("execution_error", () => {
             stopSimProgress(); // v121：报错后停止模拟进度
+            virtualProgressStartTime = 0; // v139：报错时停止虚拟总进度
+            loopVirtualStartTime = 0; // v139：报错时停止循环虚拟进度
             currentKey = null; // v121：确保reset能执行
             setInit(false);
             setBarColor(errorColor);
             show("执行出错", "left");
             clearTimeout(successTimer);
             clearTimeout(errorTimer);
+            // v139：查询队列，队列为空时重置submitCount，避免报错后立即运行累加计数
+            try {
+                fetch('/queue').then(function(r) { return r.json(); }).then(function(q) {
+                    const running = (q && q.queue_running && q.queue_running.length) || 0;
+                    const pending = (q && q.queue_pending && q.queue_pending.length) || 0;
+                    if (running + pending === 0) {
+                        submitCount = 0;
+                        currentSubmitIndex = 0;
+                    }
+                }).catch(function() {});
+            } catch (e) {}
             errorTimer = setTimeout(reset, 3000);
         });
     }

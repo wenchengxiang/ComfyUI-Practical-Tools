@@ -26,7 +26,7 @@ if not os.path.isdir(nodes_dir):
     nodes_dir = current_dir
 node_files = []
 # 需要跳过的核心模块目录（这些是依赖库，不是节点文件，用相对导入）
-_skip_dirs = {'gguf_core', '__pycache__'}
+_skip_dirs = {'gguf_core', '__pycache__', 'vosr2', 'flashvsr'}
 for root, dirs, files in os.walk(nodes_dir):
     # 原地修改 dirs，跳过不需要遍历的目录
     dirs[:] = [d for d in dirs if d not in _skip_dirs]
