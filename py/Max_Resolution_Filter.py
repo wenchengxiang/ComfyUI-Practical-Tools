@@ -1,4 +1,4 @@
-import torch
+﻿import torch
 
 class MaxResolutionFilter:
     def __init__(self):
@@ -62,7 +62,6 @@ class MaxResolutionFilter:
         if best_img is None:
             raise ValueError("列表中没有找到有效的图像数据！")
 
-        print(f"[MaxResolutionFilter] 成功筛选出最大分辨率图像: {best_img.shape[2]}x{best_img.shape[1]}")
 
         return (best_img,)
 

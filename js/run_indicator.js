@@ -577,7 +577,7 @@ function mountToToolbar() {
             font-size: 12px; font-weight: 400; line-height: 12px;
             padding: 4px 8px;
         `;
-        cupTipText.textContent = "点击进入运行等待区，再次点击退出";
+        cupTipText.textContent = "点击进入运行等待区，加快运行渲染";
         cupTip.appendChild(cupTipArrow);
         cupTip.appendChild(cupTipText);
         cupWrap.appendChild(cupTip);
@@ -921,22 +921,32 @@ function jumpInGraph(parts, topNode, runGraph) {
             g = nxt.subgraph ? nxt.subgraph : g;
             if (!nxt.subgraph) break;
         }
-        // 当前视图位于第几层（canvas.graph 与哪一层 graph 相等）
+        // v140：直接用 parts 中的节点 id 判断当前所在层（不依赖 graph 引用相等）
+        // 从最深层往顶层查：当前 graph 包含哪一层的节点 id，就认为在那一层
         let depth = -1;
-        for (let i = 0; i < layerGraphs.length; i++) {
-            if (layerGraphs[i] === canvas.graph) { depth = i; break; }
+        for (let i = parts.length - 1; i >= 0; i--) {
+            try {
+                const nid = String(parts[i]);
+                const byId = canvas.graph && canvas.graph._nodes_by_id;
+                if (byId && (byId[nid] || byId[Number(nid)])) { depth = i; break; }
+                if (canvas.graph && canvas.graph._nodes) {
+                    const found = canvas.graph._nodes.find(n => String(n.id) === nid);
+                    if (found) { depth = i; break; }
+                }
+            } catch (e) { /* ignore */ }
         }
         if (depth < 0) {
-            // 停在无关子图：先回顶层
+            // 确实停在无关子图：先回顶层
+
             if (canvas.graph !== runGraph && typeof canvas.setGraph === "function") canvas.setGraph(runGraph);
             depth = 0;
         }
-        if (depth >= layerNodes.length - 1) {
-            // 已到目标节点所在层：居中 + 选中内部节点
-            centerNodeAndSelect(canvas, layerNodes[layerNodes.length - 1]);
-        } else {
-            // 中间层：定位当前层入口容器（在当前视图坐标系内），不自动进入
-            centerNodeAndSelect(canvas, layerNodes[depth]);
+
+        // 定位目标：depth 对应层的节点
+        const targetNode = (depth < layerNodes.length) ? layerNodes[depth] : layerNodes[layerNodes.length - 1];
+
+        if (targetNode) {
+            centerNodeAndSelect(canvas, targetNode);
         }
     } catch (err) { /* ignore */ }
 }
@@ -951,14 +961,19 @@ function jumpInGraph(parts, topNode, runGraph) {
 function jumpToRunNode(key) {
     try {
         const parts = String(key).split(":");
+
         if (!parts.length || !parts[0]) return;
         const canvas = app.canvas || (app.graph && app.graph.canvas);
         if (!canvas) return;
         // 跨工作流：当前 hash 不是任务工作流 -> 切回 + 轮询等加载
         // v76：目标 = 当前执行节点所属提交的工作流（activeWorkflowHash），
         //       而非"最新提交"（A 在跑时提交 B，点槽位应回 A）
+        // v140：进入子图后 location.hash 会变成子图节点 UUID，此时不应触发跨工作流切换
+        //       判断：在子图内（canvas.graph !== app.graph）且 app.graph 包含目标节点 -> 同一工作流，跳过
         const targetHash = activeWorkflowHash || runWorkflowHash;
-        if (targetHash && location.hash !== targetHash) {
+        const inSubgraph = canvas.graph && app.graph && canvas.graph !== app.graph;
+        const topNodeInAppGraph = !!(app.graph && findNode(parts[0], app.graph));
+        if (targetHash && location.hash !== targetHash && !(inSubgraph && topNodeInAppGraph)) {
             location.hash = targetHash;
             const waitId = parts[0];
             const t0 = Date.now();

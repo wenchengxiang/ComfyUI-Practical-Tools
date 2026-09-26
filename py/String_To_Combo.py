@@ -1,4 +1,4 @@
-class AnyType(str):
+﻿class AnyType(str):
     """A special type that compares equal to any other type."""
     def __ne__(self, __value: object) -> bool:
         return False
@@ -33,7 +33,6 @@ class StringToCombo:
         if text != "":
             values = text.split(',')
             text_out = values[0]
-            print(f"[StringToCombo Output]: {text_out}") # 保留控制台打印方便你调试
 
         # 核心：必须返回字符串（str），绝不能是列表（list），下游节点（如LoRA）才能正常解析路径
         return (text_out, )

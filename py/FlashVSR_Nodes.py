@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """FlashVSR Ultra-Fast 节点（Practical-Tools 移植版）
 
@@ -29,17 +29,6 @@ device_choices = get_device_list()
 _FLASHVSR_DIR = os.path.dirname(os.path.abspath(__file__))
 _PROMPT_PATH = os.path.join(_FLASHVSR_DIR, "flashvsr", "posi_prompt.pth")
 
-
-def log(message: str, message_type: str = 'normal'):
-    if message_type == 'error':
-        message = '\033[1;41m' + message + '\033[m'
-    elif message_type == 'warning':
-        message = '\033[1;31m' + message + '\033[m'
-    elif message_type == 'finish':
-        message = '\033[1;32m' + message + '\033[m'
-    elif message_type == 'info':
-        message = '\033[1;33m' + message + '\033[m'
-    print(f"{message}")
 
 
 def tensor2video(frames: torch.Tensor):
@@ -252,7 +241,6 @@ def flashvsr(pipe, frames, scale, color_fix, tiled_vae, tiled_dit, tile_size, ti
         latent_tiles_cpu = []
 
         for i, (x1, y1, x2, y2) in enumerate(cqdm(tile_coords, desc="Processing Tiles")):
-            log(f"[FlashVSR] Processing tile {i+1}/{len(tile_coords)}: coords ({x1},{y1}) to ({x2},{y2})", message_type='info')
             input_tile = _frames[:, y1:y2, x1:x2, :]
             LQ_tile, th, tw, F = prepare_input_tensor(input_tile, _device, scale=scale, dtype=dtype)
             if not isinstance(pipe, FlashVSRTinyLongPipeline):
@@ -278,11 +266,9 @@ def flashvsr(pipe, frames, scale, color_fix, tiled_vae, tiled_dit, tile_size, ti
         weight_sum_canvas[weight_sum_canvas == 0] = 1.0
         final_output = final_output_canvas / weight_sum_canvas
     else:
-        log("[FlashVSR] Preparing frames...")
         LQ, th, tw, F = prepare_input_tensor(_frames, _device, scale=scale, dtype=dtype)
         if not isinstance(pipe, FlashVSRTinyLongPipeline):
             LQ = LQ.to(_device)
-        log(f"[FlashVSR] Processing {frames.shape[0]} frames...", message_type='info')
         video = pipe(
             prompt="", negative_prompt="", cfg_scale=1.0, num_inference_steps=1, seed=seed, tiled=tiled_vae,
             progress_bar_cmd=cqdm, LQ_video=LQ, num_frames=F, height=th, width=tw, is_full_block=False, if_buffer=True,
@@ -293,7 +279,6 @@ def flashvsr(pipe, frames, scale, color_fix, tiled_vae, tiled_dit, tile_size, ti
         del video, LQ
         clean_vram()
 
-    log("[FlashVSR] Done.", message_type='info')
     if frames.shape[0] == 1:
         final_output = final_output.to(_device)
         stacked_image_tensor = torch.median(final_output, dim=0).values.unsqueeze(0).float().to('cpu')

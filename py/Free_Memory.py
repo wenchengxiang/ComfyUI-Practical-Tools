@@ -1,4 +1,4 @@
-"""
+﻿"""
 Free Memory —— 释放显存与内存缓存节点
 功能：
   1. 调用 torch.cuda.empty_cache() 释放 GPU 显存缓存
@@ -44,12 +44,12 @@ class wcx_FreeMemory:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "执行垃圾回收": ("BOOLEAN", {"default": True}),
                 "卸载模型缓存": ("BOOLEAN", {"default": False, "tooltip": "卸载 ComfyUI 未使用的模型，释放更多显存和内存，但后续使用需重新加载"}),
-                "多轮GC": ("BOOLEAN", {"default": False, "tooltip": "执行3轮 gc.collect()，更彻底回收但稍慢"}),
+                "回收运行垃圾": ("BOOLEAN", {"default": True}),
+                "multi round GC": ("BOOLEAN", {"default": False, "tooltip": "执行3轮 gc.collect()，更彻底回收但稍慢"}),
             },
             "optional": {
-                "passthrough": ("*", {}),
+                "any": ("*", {}),
             },
         }
 
@@ -57,15 +57,19 @@ class wcx_FreeMemory:
     CATEGORY = "Practical-Tools/utils"
 
     RETURN_TYPES = ("*",)
-    RETURN_NAMES = ("passthrough",)
+    RETURN_NAMES = ("any",)
     OUTPUT_NODE = True
 
-    def execute(self, 执行垃圾回收=True, 卸载模型缓存=False, 多轮GC=False, passthrough=None):
+    def execute(self, **kwargs):
+        卸载模型缓存 = kwargs.get("卸载模型缓存", False)
+        回收运行垃圾 = kwargs.get("回收运行垃圾", True)
+        multi_round_GC = kwargs.get("multi round GC", False)
+        any = kwargs.get("any", None)
         result = {
             "ui": {
                 "text": []
             },
-            "result": (passthrough,)
+            "result": (any,)
         }
 
         lines = []
@@ -115,8 +119,8 @@ class wcx_FreeMemory:
                 lines.append(f"⚠ 模型卸载失败: {e}")
 
         # ===== 2. 垃圾回收 =====
-        if 执行垃圾回收:
-            if 多轮GC:
+        if 回收运行垃圾:
+            if multi_round_GC:
                 for i in range(3):
                     gc.collect()
                 lines.append("✓ gc.collect() x3 已执行")

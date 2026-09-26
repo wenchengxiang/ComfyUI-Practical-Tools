@@ -1,4 +1,4 @@
-import torch
+﻿import torch
 from torchvision.transforms.functional import gaussian_blur
 
 
@@ -35,7 +35,6 @@ class MaskBlur:
         # 移除通道维度，返回 [B, H, W]
         mask = mask.squeeze(1)
 
-        print(f"[Mask Blur] Processed {mask.shape[0]} mask(s).")
         return (mask,)
 
 

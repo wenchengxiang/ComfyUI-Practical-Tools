@@ -1,4 +1,4 @@
-﻿// pt_settings.js — Practical-Tools 插件设置注册
+// pt_settings.js — Practical-Tools 插件设置注册
 // 在 ComfyUI 设置面板中添加 "Practical Tools" 分类下的开关项
 // 设置值存储在 localStorage，key 格式：Comfy.Settings.PracticalTools.<id>
 // 各功能脚本启动时读取此值决定是否启用；变更后刷新生效。
@@ -42,11 +42,12 @@
                         }
                         const toast = document.createElement("div");
                         toast.textContent = "「" + name + "」已" + (value ? "开启" : "关闭") + "，刷新后生效";
-                        toast.style.cssText = "position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:99999;background:rgba(40,40,40,0.95);color:#fff;padding:14px 24px;border-radius:8px;font-size:14px;box-shadow:0 4px 20px rgba(0,0,0,0.5);border-left:4px solid #3b82f6;transition:opacity .3s;white-space:nowrap;";
+                        toast.style.cssText = "position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:99999;background:rgba(40,40,40,0.95);color:#fff;padding:14px 24px;border-radius:8px;font-size:14px;box-shadow:0 4px 20px rgba(0,0,0,0.5);border-left:4px solid #3b82f6;transition:opacity .3s;width:380px;text-align:center;line-height:1.5;box-sizing:border-box;";
                         if (container) {
                             container.style.position = container.style.position || "relative";
                             container.appendChild(toast);
                         } else {
+                            toast.style.position = "fixed";
                             document.body.appendChild(toast);
                         }
                         setTimeout(function () {
@@ -85,6 +86,36 @@
         );
 
         console.log("[PT] 设置项已注册: Practical Tools");
+
+        // 首次安装插件时，将节点标签三项默认设为"无"、API定价徽章默认关；之后不再干预，用户更改有效
+        const PT_FIRST_INSTALL_FLAG = "PracticalTools.FirstInstall.NodeBadgeDefaults";
+        const NODE_BADGE_KEYS = [
+            "Comfy.NodeBadge.NodeLifeCycleBadgeMode",
+            "Comfy.NodeBadge.NodeIdBadgeMode",
+            "Comfy.NodeBadge.NodeSourceBadgeMode"
+        ];
+        try {
+            if (!localStorage.getItem(PT_FIRST_INSTALL_FLAG)) {
+                // 首次安装：强制设默认值
+                const storedSettings = JSON.parse(localStorage.getItem("Comfy.Settings") || "{}");
+                for (const key of NODE_BADGE_KEYS) {
+                    storedSettings[key] = "None";
+                    if (typeof settings.setSettingValue === "function") {
+                        settings.setSettingValue(key, "None");
+                    }
+                }
+                // API 节点定价徽章默认关
+                storedSettings["Comfy.NodeBadge.ShowApiPricing"] = false;
+                if (typeof settings.setSettingValue === "function") {
+                    settings.setSettingValue("Comfy.NodeBadge.ShowApiPricing", false);
+                }
+                localStorage.setItem("Comfy.Settings", JSON.stringify(storedSettings));
+                localStorage.setItem(PT_FIRST_INSTALL_FLAG, "1");
+                console.log("[PT] 首次安装：节点标签三项设为无，API定价徽章设为关");
+            }
+        } catch (e) {
+            console.log("[PT] 设置节点标签默认值失败:", e);
+        }
 
         // 在 PracticalTools 分类底部注入"保存设置并刷新页面"按钮
         function injectRefreshButton() {
