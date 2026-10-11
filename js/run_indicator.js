@@ -1,4 +1,4 @@
-// run_indicator.js — Practical-Tools 右上角运行指示条（v78）
+﻿// run_indicator.js — Practical-Tools 右上角运行指示条（v78）
 //
 // v78（v77 基础上新增"运行等待区"茶杯图标）：
 //   * 工作流节点多时运行画面卡——节点移出视口后 canvas 只渲染可见区域，变快。
@@ -1706,7 +1706,7 @@ app.registerExtension({
     async setup() {
         // 设置开关：未启用则直接退出
         try {
-            const enabled = app.ui.settings.getSettingValue("PracticalTools.EnableRunIndicator", true);
+            const enabled = app.ui.settings.getSettingValue("Practical-Tools.EnableRunIndicator", true);
             if (enabled === false) return;
         } catch (e) { /* 默认启用 */ }
 

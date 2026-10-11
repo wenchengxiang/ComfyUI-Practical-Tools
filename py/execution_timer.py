@@ -43,9 +43,9 @@ def _patched_send_sync(event, data, sid=None):
                     del state['first_node_start'][prompt_id]
                     if elapsed > 600:
                         formatted = time.strftime("%H:%M:%S", time.gmtime(elapsed))
-                        print(f"{GREEN}[INFO] Node executed in {formatted}{RESET}")
+                        print(f"{GREEN}[INFO] Node executed in {formatted}{RESET}", flush=True)
                     else:
-                        print(f"{GREEN}[INFO] Node executed in {elapsed:.2f} seconds{RESET}")
+                        print(f"{GREEN}[INFO] Node executed in {elapsed:.2f} seconds{RESET}", flush=True)
     except Exception:
         pass
     return state['original_send_sync'](event, data, sid)

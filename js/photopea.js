@@ -1,17 +1,196 @@
-console.log("Practical-Tools Photopea extension loaded.");
+﻿console.log("Practical-Tools Photopea extension loaded.");
 
 import { app } from "../../scripts/app.js";
 
+
+// ================================================================
+// 递归查找子图内部的 LoadImage 节点
+// ================================================================
+function findAllLoadImageNodes(node) {
+    if (!node) return [];
+    const results = [];
+    // 子图节点本身不加入结果（它的 image widget 是暴露的，不是真正的 LoadImage）
+    if (!node.subgraph) {
+        if (node.comfyClass === "LoadImage" || node.comfyClass === "LoadImageMask") {
+            results.push(node);
+        } else if (node.widgets && Array.isArray(node.widgets) && node.widgets.some(w => w.name === "image")) {
+            results.push(node);
+        }
+    }
+    // 子图内部节点
+    if (node.subgraph && node.subgraph._nodes && Array.isArray(node.subgraph._nodes)) {
+        for (const inner of node.subgraph._nodes) {
+            if (!inner) continue;
+            if (inner.comfyClass === "LoadImage" || inner.comfyClass === "LoadImageMask") {
+                results.push(inner);
+            } else if (inner.widgets && Array.isArray(inner.widgets) && inner.widgets.some(w => w.name === "image")) {
+                results.push(inner);
+            }
+        }
+    }
+    return results;
+}
+
+function findLoadImageNodeRecursive(node) {
+    if (!node) return null;
+    // 1. 检查节点本身是否是标准 LoadImage
+    if (node.comfyClass === "LoadImage" || node.comfyClass === "LoadImageMask") return node;
+    // 2. 如果是子图节点，遍历其内部所有节点
+    const subGraph = node.subgraph;
+    if (subGraph && subGraph._nodes && Array.isArray(subGraph._nodes)) {
+        // 优先找标准 LoadImage 节点
+        for (const inner of subGraph._nodes) {
+            if (inner && (inner.comfyClass === "LoadImage" || inner.comfyClass === "LoadImageMask")) {
+                return inner;
+            }
+        }
+        // 其次找有 image widget 的节点
+        for (const inner of subGraph._nodes) {
+            if (inner && inner.widgets && Array.isArray(inner.widgets) && inner.widgets.some(w => w.name === "image")) {
+                return inner;
+            }
+        }
+        // 最后递归检查嵌套子图
+        for (const inner of subGraph._nodes) {
+            if (inner && inner.subgraph) {
+                const found = findLoadImageNodeRecursive(inner);
+                if (found) return found;
+            }
+        }
+    }
+    // 3. 节点本身有 image widget（非标准 LoadImage）
+    if (node.widgets && Array.isArray(node.widgets) && node.widgets.some(w => w.name === "image")) return node;
+    return null;
+}
+
+
 let photopeaWindow = null;
 let persistentContainer = null;
-let lastRequestingNodeId = null;
+let lastRequestingNode = null;
 let lastExportKind = "image"; // "image", "layer", "layer_fit"
+
+
+// ================================================================
+// 设置 LoadImage 节点的图像（兼容子图内部节点）
+// ================================================================
+
+// ================================================================
+// 检查节点是否应该显示我们的菜单（LoadImage/LoadImageMask 或包含此类节点的子图）
+// ================================================================
+function shouldShowMenu(node) {
+    if (!node) return false;
+    // 节点本身是 LoadImage/LoadImageMask
+    if (node.comfyClass === "LoadImage" || node.comfyClass === "LoadImageMask") return true;
+    if (node.widgets && Array.isArray(node.widgets) && node.widgets.some(w => w.name === "image")) return true;
+    // 子图内部包含 LoadImage/LoadImageMask
+    if (node.subgraph && node.subgraph._nodes && Array.isArray(node.subgraph._nodes)) {
+        for (const inner of node.subgraph._nodes) {
+            if (!inner) continue;
+            if (inner.comfyClass === "LoadImage" || inner.comfyClass === "LoadImageMask") return true;
+            if (inner.widgets && Array.isArray(inner.widgets) && inner.widgets.some(w => w.name === "image")) return true;
+        }
+    }
+    return false;
+}
+
+function setLoadImageValue(node, imageName) {
+    if (!node || !node.widgets) return;
+    const widget = node.widgets.find(w => w.name === "image");
+    if (!widget) return;
+
+    widget.value = imageName;
+
+    // 手动加载图像预览
+    const img = new Image();
+    img.onload = () => {
+        node.imgs = [img];
+        if (node.graph && node.graph.setDirtyCanvas) {
+            node.graph.setDirtyCanvas(true, true);
+        }
+        app.graph.setDirtyCanvas(true, true);
+        app.canvas.setDirty(true, true);
+    };
+    img.src = `/view?filename=${encodeURIComponent(imageName)}&type=input&subfolder=`;
+
+    // 调用 callback
+    if (widget.callback) {
+        try { widget.callback(imageName); } catch(e) {}
+    }
+
+    // 如果节点在子图内部，同时更新子图节点暴露的 widget
+    if (node.graph && node.graph !== app.graph) {
+        const parentSubgraphNode = app.graph._nodes.find(n => n.subgraph === node.graph);
+        if (parentSubgraphNode && parentSubgraphNode.widgets) {
+            // 找到当前节点在子图内部 LoadImage 列表中的索引
+            const allInnerLoadImages = node.graph._nodes.filter(n =>
+                n.comfyClass === "LoadImage" || n.comfyClass === "LoadImageMask" ||
+                (n.widgets && Array.isArray(n.widgets) && n.widgets.some(w => w.name === "image"))
+            );
+            const nodeIndex = allInnerLoadImages.indexOf(node);
+            
+            // 找到子图暴露的所有 image combo widget
+            const imageWidgets = parentSubgraphNode.widgets.filter(w =>
+                w.type === "combo" && w.name && w.name.startsWith("image")
+            );
+            
+            // 根据索引更新对应的 widget
+            let parentWidget = null;
+            if (nodeIndex >= 0 && nodeIndex < imageWidgets.length) {
+                parentWidget = imageWidgets[nodeIndex];
+            } else if (imageWidgets.length > 0) {
+                // 索引不匹配时回退到第一个
+                parentWidget = imageWidgets[0];
+            }
+            
+            if (parentWidget) {
+                parentWidget.value = imageName;
+                if (parentWidget.callback) {
+                    try { parentWidget.callback(imageName); } catch(e) {}
+                }
+                // 刷新子图节点显示
+                if (parentSubgraphNode.setDirtyCanvas) {
+                    parentSubgraphNode.setDirtyCanvas(true, true);
+                }
+            }
+        }
+    }
+}
 
 app.registerExtension({
     name: "PracticalTools.Photopea",
 
     setup() {
         console.log("Practical-Tools Photopea: setup called");
+
+        // 检查设置开关（延迟到设置系统就绪后再判断）
+        const checkPhotopeaEnabled = () => {
+            let enabled = true;
+            try {
+                if (app.ui?.settings?.getSettingValue) {
+                    enabled = app.ui.settings.getSettingValue("Practical-Tools.EnablePhotopea", true);
+                } else {
+                    enabled = localStorage.getItem("Comfy.Settings.Practical-Tools.EnablePhotopea") !== "false";
+                }
+            } catch (e) {}
+            if (!enabled) {
+                console.log("Practical-Tools Photopea: disabled by settings");
+                return true; // 返回 true 表示已禁用
+            }
+            return false;
+        };
+        if (checkPhotopeaEnabled()) return;
+        // 设置系统可能还没就绪，延迟再检查一次
+        setTimeout(() => {
+            if (checkPhotopeaEnabled()) {
+                // 如果此时才发现被禁用，移除已注册的侧边栏
+                try {
+                    const tab = document.querySelector("[data-id=\"practical-tools-photopea\"]");
+                    if (tab) tab.remove();
+                    const container = document.getElementById("practical-tools-photopea-container");
+                    if (container) container.remove();
+                } catch (e) {}
+            }
+        }, 1000);
 
         if (!app.extensionManager?.registerSidebarTab) {
             console.warn(
@@ -55,7 +234,7 @@ app.registerExtension({
                 align-items: center;
                 gap: 8px;
                 padding: 0 10px;
-                background: #111;
+                background: #1a1a1a;
                 border-bottom: 1px solid #333;
                 color: #ddd;
                 font-family: sans-serif;
@@ -63,6 +242,10 @@ app.registerExtension({
                 height: 34px;
                 box-sizing: border-box;
                 flex-shrink: 0;
+                pointer-events: none;
+                margin-right: -50px;
+                position: relative;
+                z-index: 10;
             }
 
             .practical-tools-photopea-toolbar-btn {
@@ -77,6 +260,7 @@ app.registerExtension({
                 gap: 4px;
                 font-size: 11px;
                 transition: all 0.2s;
+                pointer-events: auto;
             }
 
             .practical-tools-photopea-toolbar-btn:hover {
@@ -99,8 +283,8 @@ app.registerExtension({
 
         const config = {
             environment: {
-                theme: 2,
-                lang: "en",
+                theme: 5,
+                lang: "zh-CN",
                 intro: false,
                 vmode: 0,
                 api: true
@@ -112,7 +296,6 @@ app.registerExtension({
                 JSON.stringify(config)
             );
 
-        let adsHidden = false;
         let isMaximized = false;
         let wasMaximizedBeforeFS = false;
         let uiZoom = 1.0;
@@ -152,13 +335,18 @@ app.registerExtension({
                 "1000";
 
             persistentContainer.style.background =
-                "#000";
+                "#1e1e1e";
+            
 
-            persistentContainer.style.pointerEvents =
-                "auto";
+            persistentContainer.style.pointerEvents = "none";
 
             persistentContainer.style.overflow =
-                "hidden";
+                "visible";
+
+            // 右侧背景条，覆盖 50px 拖拽空隙
+            const rightBg = document.createElement("div");
+            rightBg.style.cssText = "position:absolute; left:100%; top:0; width:50px; height:100%; background:#353535; pointer-events:none; z-index:5;";
+            persistentContainer.appendChild(rightBg);
 
             // --------------------------------------------------------
             // Toolbar
@@ -177,7 +365,7 @@ app.registerExtension({
                     gap:8px;
                 ">
                     <i
-                        class="pi pi-photopea-logo"
+                        class="pi pi-palette"
                         style="width:16px;height:16px;"
                     ></i>
 
@@ -235,10 +423,10 @@ app.registerExtension({
 
                 <button
                     class="practical-tools-photopea-toolbar-btn"
-                    id="practical-tools-photopea-ad-toggle"
-                    title="Hide Ads"
+                    id="practical-tools-photopea-refresh"
+                    title="刷新"
                 >
-                    <i class="pi pi-eye-slash"></i>
+                    <i class="pi pi-refresh"></i>
                 </button>
 
                 <button
@@ -309,23 +497,28 @@ app.registerExtension({
             refreshZoomUI();
 
             // --------------------------------------------------------
-            // Ads
+            // Refresh
             // --------------------------------------------------------
 
-            const adToggle =
+            const refreshBtn =
                 toolbar.querySelector(
-                    "#practical-tools-photopea-ad-toggle"
+                    "#practical-tools-photopea-refresh"
                 );
 
-            adToggle.onclick = () => {
+            // 刷新遮罩层，避免闪白
+            const refreshMask = document.createElement("div");
+            refreshMask.style.cssText = "position:absolute; left:0; top:34px; right:0; bottom:0; background:#1e1e1e; z-index:100; display:none; pointer-events:none;";
+            persistentContainer.appendChild(refreshMask);
 
-                adsHidden =
-                    !adsHidden;
-
-                adToggle.classList.toggle(
-                    "active",
-                    adsHidden
-                );
+            refreshBtn.onclick = () => {
+                if (iframe) {
+                    refreshMask.style.display = "block";
+                    const currentSrc = iframe.src;
+                    iframe.src = "";
+                    iframe.offsetHeight;
+                    iframe.src = currentSrc;
+                    setTimeout(() => { refreshMask.style.display = "none"; }, 300);
+                }
             };
 
             // --------------------------------------------------------
@@ -341,6 +534,9 @@ app.registerExtension({
 
                 const isFS =
                     !!document.fullscreenElement;
+
+                // 最大化/全屏时移除顶部栏的 -50px margin，避免图标超出屏幕
+                toolbar.style.marginRight = (isMaximized || isFS) ? "0" : "-50px";
 
                 maximizeToggle.style.display =
                     isFS ? "none" : "flex";
@@ -422,6 +618,13 @@ app.registerExtension({
                 toolbar
             );
 
+            // 提示条
+            const photopeaHintBar = document.createElement("div");
+            photopeaHintBar.id = "practical-tools-photopea-hint-bar";
+            photopeaHintBar.style.cssText = "display:none; align-items:center; justify-content:center; gap:8px; padding:6px 12px; background:#2a2a2a; border-bottom:1px solid #333; color:#ef4444; font-size:13px; font-family:sans-serif; pointer-events:none; flex-shrink:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;";
+            photopeaHintBar.innerHTML = "<i class=\"pi pi-info-circle\" style=\"font-size:12px; color:#ef4444;\"></i><span>在加载图像节点上右键，选择 Load image from Photopea 即可加载PS图像</span>";
+            persistentContainer.appendChild(photopeaHintBar);
+
             // --------------------------------------------------------
             // Photopea iframe
             // --------------------------------------------------------
@@ -443,6 +646,13 @@ app.registerExtension({
 
             iframe.style.flex =
                 "none";
+
+            iframe.style.marginRight =
+                "0";
+
+            iframe.style.pointerEvents = "auto";
+            iframe.style.maxWidth = "100%";
+            iframe.style.background = "#1e1e1e";
 
             iframe.allow =
                 "clipboard-read; clipboard-write; shift-ctrl-copy-paste";
@@ -497,8 +707,8 @@ app.registerExtension({
                 }
 
                 const filename =
-                    lastRequestingNodeId
-                        ? `${prefix}${lastRequestingNodeId}.png`
+                    lastRequestingNode
+                        ? `${prefix}${lastRequestingNode.id}.png`
                         : "photopea_export.png";
 
                 const formData =
@@ -552,13 +762,11 @@ app.registerExtension({
                     // ------------------------------------------------
 
                     if (
-                        lastRequestingNodeId
+                        lastRequestingNode
                     ) {
 
                         const node =
-                            app.graph.getNodeById(
-                                lastRequestingNodeId
-                            );
+                            lastRequestingNode;
 
                         if (node) {
 
@@ -583,28 +791,12 @@ app.registerExtension({
                                     );
 
                                 if (widget) {
-
-                                    widget.value =
-                                        result.name;
-
-                                    if (
-                                        widget.callback
-                                    ) {
-
-                                        widget.callback(
-                                            widget.value
-                                        );
-                                    }
-
-                                    node.setDirtyCanvas?.(
-                                        true,
-                                        true
-                                    );
+                                    setLoadImageValue(node, result.name);
                                 }
                             }
                         }
 
-                        lastRequestingNodeId =
+                        lastRequestingNode =
                             null;
 
                         lastExportKind =
@@ -623,7 +815,7 @@ app.registerExtension({
                         error
                     );
 
-                    lastRequestingNodeId =
+                    lastRequestingNode =
                         null;
 
                     lastExportKind =
@@ -643,7 +835,7 @@ app.registerExtension({
 
             // 原 Photopea 插件的官方图标
             icon:
-                "pi pi-photopea-logo",
+                "pi pi-palette",
 
             title:
                 "Photopea",
@@ -671,7 +863,12 @@ app.registerExtension({
         // Sync Photopea position with Sidebar
         // ------------------------------------------------------------
 
+        let lastMaximized = false;
         const syncPosition = () => {
+
+            // 检测最大化状态变化，退回时强制更新样式
+            const maximizedChanged = lastMaximized !== isMaximized;
+            lastMaximized = isMaximized;
 
             if (!persistentContainer) {
 
@@ -720,11 +917,6 @@ app.registerExtension({
                 persistentContainer.style.display =
                     "flex";
 
-                const extraWidth =
-                    adsHidden
-                        ? 300
-                        : 0;
-
                 const width =
                     window.innerWidth;
 
@@ -732,7 +924,7 @@ app.registerExtension({
                     window.innerHeight - 34;
 
                 iframe.style.width =
-                    `${(width + extraWidth) / uiZoom}px`;
+                    `${width / uiZoom}px`;
 
                 iframe.style.height =
                     `${height / uiZoom}px`;
@@ -782,60 +974,83 @@ app.registerExtension({
                 rect.height > 5
             ) {
 
-                persistentContainer.style.visibility =
-                    "visible";
+                // 缓存上一次位置，只有变化时才更新样式（减少重排）
+                const cacheKey = "practical-tools-photopea-pos";
+                const lastPos = window[cacheKey] || {};
+                const posChanged = lastPos.top !== rect.top || lastPos.left !== rect.left ||
+                                   lastPos.width !== rect.width || lastPos.height !== rect.height ||
+                                   lastPos.uiZoom !== uiZoom;
+                window[cacheKey] = { top: rect.top, left: rect.left, width: rect.width, height: rect.height, uiZoom: uiZoom };
 
-                persistentContainer.style.top =
-                    `${rect.top}px`;
+                const wasHidden = persistentContainer.style.visibility !== "visible";
+                if (wasHidden) {
+                    const hintBar = document.getElementById("practical-tools-photopea-hint-bar");
+                    if (hintBar) {
+                        hintBar.style.display = "flex";
+                        clearTimeout(window._photopeaHintTimer);
+                        window._photopeaHintTimer = setTimeout(() => {
+                            hintBar.style.display = "none";
+                        }, 10000);
+                    }
+                    persistentContainer.style.visibility = "visible";
+                    persistentContainer.style.display = "flex";
+                }
 
-                persistentContainer.style.left =
-                    `${rect.left}px`;
+                // 刚从隐藏变为显示，或刚从最大化退回时，强制更新样式
+                if (posChanged || wasHidden || maximizedChanged) {
+                    persistentContainer.style.top = `${rect.top}px`;
+                    persistentContainer.style.left = `${rect.left}px`;
+                    persistentContainer.style.width = `${rect.width - 50}px`;
+                    persistentContainer.style.height = `${rect.height}px`;
 
-                persistentContainer.style.width =
-                    `${rect.width}px`;
-
-                persistentContainer.style.height =
-                    `${rect.height}px`;
-
-                persistentContainer.style.display =
-                    "flex";
-
-                const extraWidth =
-                    adsHidden
-                        ? 300
-                        : 0;
-
-                const width =
-                    rect.width;
-
-                const height =
-                    rect.height - 34;
-
-                iframe.style.width =
-                    `${(width + extraWidth * uiZoom) / uiZoom}px`;
-
-                iframe.style.height =
-                    `${height / uiZoom}px`;
-
-                iframe.style.transform =
-                    `scale(${uiZoom})`;
-
-                iframe.style.transformOrigin =
-                    "top left";
+                    const width = rect.width;
+                    const height = rect.height - 34;
+                    iframe.style.width = `${width / uiZoom}px`;
+                    iframe.style.height = `${height / uiZoom}px`;
+                    iframe.style.transform = `scale(${uiZoom})`;
+                    iframe.style.transformOrigin = "top left";
+                }
 
             } else {
 
-                persistentContainer.style.visibility =
-                    "hidden";
+                if (persistentContainer.style.visibility !== "hidden") {
+                    persistentContainer.style.visibility = "hidden";
+                    persistentContainer.style.left = "-10000px";
+                }
 
-                persistentContainer.style.left =
-                    "-10000px";
+                // 隐藏时低频检查（500ms），减少性能开销
+                setTimeout(syncPosition, 500);
+                return;
             }
 
+            // 可见时高频同步
             requestAnimationFrame(
                 syncPosition
             );
         };
+
+        // 边缘拖拽支持：鼠标在左边缘时临时禁用 iframe 事件，让侧边栏可以拖拽
+        document.addEventListener("mousedown", (e) => {
+            if (!persistentContainer || persistentContainer.style.visibility === "hidden") return;
+            const rect = persistentContainer.getBoundingClientRect();
+            if (e.clientX >= rect.left && e.clientX <= rect.left + 8) {
+                const iframe = document.getElementById("practical-tools-photopea-iframe");
+                if (iframe) iframe.style.pointerEvents = "none";
+            }
+        });
+        document.addEventListener("mouseup", () => {
+            const iframe = document.getElementById("practical-tools-photopea-iframe");
+            if (iframe) iframe.style.pointerEvents = "auto";
+            iframe.style.maxWidth = "100%";
+        });
+
+        // 确保侧边栏拖拽手柄在最上层，不被 persistentContainer 覆盖
+        const raiseSplitterGutter = () => {
+            const gutters = document.querySelectorAll(".p-splitter-gutter:not(.hidden)");
+            gutters.forEach(g => { g.style.zIndex = "99999"; g.style.position = "relative"; });
+        };
+        raiseSplitterGutter();
+        new MutationObserver(raiseSplitterGutter).observe(document.body, { childList: true, subtree: true });
 
         syncPosition();
     },
@@ -845,189 +1060,84 @@ app.registerExtension({
     // ================================================================
 
     getNodeMenuItems(node) {
+        if (!shouldShowMenu(node)) return [];
 
         const items = [];
-
-        // ------------------------------------------------------------
-        // 支持 LoadImage 和 LoadImageMask
-        // ------------------------------------------------------------
-
-        const isLoadImage =
-            node.comfyClass ===
-            "LoadImage";
-
-        const isLoadImageMask =
-            node.comfyClass ===
-            "LoadImageMask";
-
-        const isImageLoader =
-            isLoadImage ||
-            isLoadImageMask;
-
-        // ------------------------------------------------------------
-        // 判断节点是否有图像
-        // ------------------------------------------------------------
-
-        const hasImages =
-            node.imgs?.length > 0 ||
-            (
-                node.widgets &&
-                node.widgets.some(
-                    w =>
-                        w.name ===
-                        "image"
-                )
-            );
+        const allNodes = findAllLoadImageNodes(node);
+        if (allNodes.length === 0) return [];
+        const getLabel = (n, idx) => {
+            if (n.title) return n.title;
+            const w = n.widgets?.find(w => w.name === "image");
+            if (w && w.value) return w.value;
+            return n.comfyClass + " #" + (idx + 1);
+        };
 
         // ------------------------------------------------------------
         // Open image
         // ------------------------------------------------------------
 
-        if (
-            hasImages ||
-            isImageLoader
-        ) {
+        // Send image 函数
+        const sendImageToPhotopea = async (tn) => {
+            if (!tn) { alert("未找到 LoadImage 节点"); return; }
+            let imageUrl = null;
+            if (tn.imgs?.length > 0) {
+                imageUrl = tn.imgs[0].src;
+            } else {
+                const widget = tn.widgets?.find(w => w.name === "image");
+                if (widget?.value) {
+                    imageUrl = `/view?filename=${encodeURIComponent(widget.value)}&type=input`;
+                }
+            }
+            if (!imageUrl) { alert("未找到图像"); return; }
+            // 判断 Photopea 是否已打开：persistentContainer 可见 或 anchor 有尺寸
+            const container = document.getElementById("practical-tools-photopea-container");
+            const anchor = document.getElementById("practical-tools-photopea-anchor");
+            const isOpen = (container && container.style.visibility === "visible") ||
+                           (anchor && anchor.getBoundingClientRect().width > 5);
+            // 未打开时才点击按钮，已打开直接发送（避免切换关闭）
+            if (!isOpen) {
+                const tabButton = document.querySelector('.side-bar-button[aria-label="Photopea Photo Editor"]');
+                if (tabButton) tabButton.click();
+                await new Promise(r => setTimeout(r, 500));
+            }
+            // 直接用 id 获取 iframe，最可靠
+            const iframe = document.getElementById("practical-tools-photopea-iframe");
+            if (!iframe) { alert("未找到 Photopea iframe"); return; }
+            if (!iframe.contentWindow) { alert("iframe contentWindow 为空"); return; }
+            try {
+                const response = await fetch(imageUrl);
+                if (!response.ok) { alert("fetch 失败: " + response.status); return; }
+                const blob = await response.blob();
+                const arrayBuffer = await blob.arrayBuffer();
+                iframe.contentWindow.postMessage(arrayBuffer, "*");
+            } catch (error) {
+                alert("发送失败: " + error.message);
+                console.error("Practical-Tools Photopea: Failed to open image:", error);
+            }
+        };
 
+        // Send image
+        if (allNodes.length === 1) {
+            items.push({ content: "Send image to Photopea", callback: () => sendImageToPhotopea(allNodes[0]) });
+        } else {
             items.push({
-
-                content:
-                    "Photopea - Open image",
-
-                callback:
-                    async () => {
-
-                        let imageUrl =
-                            null;
-
-                        // --------------------------------------------
-                        // 节点预览
-                        // --------------------------------------------
-
-                        if (
-                            node.imgs?.length > 0
-                        ) {
-
-                            imageUrl =
-                                node.imgs[0].src;
-
-                        } else {
-
-                            // ----------------------------------------
-                            // LoadImage / LoadImageMask
-                            // ----------------------------------------
-
-                            const widget =
-                                node.widgets?.find(
-                                    w =>
-                                        w.name ===
-                                        "image"
-                                );
-
-                            if (
-                                widget?.value
-                            ) {
-
-                                imageUrl =
-                                    `/view?filename=${encodeURIComponent(
-                                        widget.value
-                                    )}&type=input`;
-                            }
-                        }
-
-                        if (!imageUrl) {
-                            return;
-                        }
-
-                        // --------------------------------------------
-                        // 打开 Photopea Sidebar
-                        // --------------------------------------------
-
-                        const tabButton =
-                            document.querySelector(
-                                `.comfy-sidebar-tab-btn[data-id="practical-tools-photopea"]`
-                            ) ||
-                            document.querySelector(
-                                `.comfy-sidebar-tab-btn[title="Photopea"]`
-                            );
-
-                        if (tabButton) {
-
-                            tabButton.click();
-
-                        } else {
-
-                            const sideButton =
-                                document.querySelector(
-                                    `button[data-tab-id="practical-tools-photopea"]`
-                                );
-
-                            if (sideButton) {
-                                sideButton.click();
-                            }
-                        }
-
-                        // --------------------------------------------
-                        // 发送图像给 Photopea
-                        // --------------------------------------------
-
-                        try {
-
-                            const response =
-                                await fetch(
-                                    imageUrl
-                                );
-
-                            if (!response.ok) {
-
-                                throw new Error(
-                                    "Failed to fetch image"
-                                );
-                            }
-
-                            const blob =
-                                await response.blob();
-
-                            const buffer =
-                                await blob.arrayBuffer();
-
-                            const iframe =
-                                document.querySelector(
-                                    "#practical-tools-photopea-iframe"
-                                );
-
-                            if (
-                                iframe?.contentWindow
-                            ) {
-
-                                iframe.contentWindow
-                                    .postMessage(
-                                        buffer,
-                                        "*"
-                                    );
-                            }
-
-                        } catch (error) {
-
-                            console.error(
-                                "Practical-Tools Photopea: Failed to open image:",
-                                error
-                            );
-                        }
-                    }
+                content: "Send image to Photopea",
+                has_submenu: true,
+                submenu: { options: allNodes.map((n, i) => ({ content: "from " + getLabel(n, i), callback: () => sendImageToPhotopea(n) })) }
             });
         }
+
 
         // ============================================================
         // LoadImage / LoadImageMask export
         // ============================================================
 
-        if (isImageLoader) {
 
             const sendExportScript =
-                (nodeId, kind) => {
+                (targetNode, kind) => {
 
-                    lastRequestingNodeId =
-                        nodeId;
+                    lastRequestingNode =
+                        targetNode;
 
                     lastExportKind =
                         kind;
@@ -1229,56 +1339,43 @@ app.registerExtension({
                 };
 
             // --------------------------------------------------------
+            // --------------------------------------------------------
+            // --------------------------------------------------------
+            // --------------------------------------------------------
+            // --------------------------------------------------------
+            // --------------------------------------------------------
+            // --------------------------------------------------------
+            // --------------------------------------------------------
+            // --------------------------------------------------------
+            // --------------------------------------------------------
+            // --------------------------------------------------------
+            // --------------------------------------------------------
             // Import image
             // --------------------------------------------------------
 
-            items.push({
+            if (allNodes.length === 1) {
+                items.push({ content: "Load image from Photopea", callback: () => sendExportScript(allNodes[0], "image") });
+            } else {
+                items.push({
+                    content: "Load image from Photopea",
+                    has_submenu: true,
+                    submenu: { options: allNodes.map((n, i) => ({ content: "to " + getLabel(n, i), callback: () => sendExportScript(n, "image") })) }
+                });
+            }
 
-                content:
-                    "Photopea - Import image",
-
-                callback:
-                    () =>
-                        sendExportScript(
-                            node.id,
-                            "image"
-                        )
-            });
-
-            // --------------------------------------------------------
             // Import layer
             // --------------------------------------------------------
 
-            items.push({
+            if (allNodes.length === 1) {
+                items.push({ content: "Load layer from Photopea", callback: () => sendExportScript(allNodes[0], "layer") });
+            } else {
+                items.push({
+                    content: "Load layer from Photopea",
+                    has_submenu: true,
+                    submenu: { options: allNodes.map((n, i) => ({ content: "to " + getLabel(n, i), callback: () => sendExportScript(n, "layer") })) }
+                });
+            }
 
-                content:
-                    "Photopea - Import layer",
-
-                callback:
-                    () =>
-                        sendExportScript(
-                            node.id,
-                            "layer"
-                        )
-            });
-
-            // --------------------------------------------------------
-            // Import layer: fit size
-            // --------------------------------------------------------
-
-            items.push({
-
-                content:
-                    "Photopea - Import layer: fit size",
-
-                callback:
-                    () =>
-                        sendExportScript(
-                            node.id,
-                            "layer_fit"
-                        )
-            });
-        }
 
         return items;
     }

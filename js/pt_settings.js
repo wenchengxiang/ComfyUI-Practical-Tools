@@ -1,10 +1,10 @@
-// pt_settings.js — Practical-Tools 插件设置注册
+﻿// pt_settings.js — Practical-Tools 插件设置注册
 // 在 ComfyUI 设置面板中添加 "Practical Tools" 分类下的开关项
 // 设置值存储在 localStorage，key 格式：Comfy.Settings.PracticalTools.<id>
 // 各功能脚本启动时读取此值决定是否启用；变更后刷新生效。
 
 (function () {
-    const SETTING_PREFIX = "PracticalTools.";
+    const SETTING_PREFIX = "Practical-Tools.";
 
     // 等待 app 和设置系统就绪
     function waitForApp(cb) {
@@ -14,6 +14,21 @@
             setTimeout(() => waitForApp(cb), 100);
         }
     }
+
+    // 迁移旧前缀设置值到新前缀
+    (function migrateSettings() {
+        const oldPrefix = "Comfy.Settings.PracticalTools.";
+        const newPrefix = "Comfy.Settings.Practical-Tools.";
+        const keys = ["EnableNodeLayerFix", "EnableFoldedSizeFix", "EnableSubgraphImageSync", "EnableRunIndicator", "EnablePhotopea", "EnablePoseEditor"];
+        keys.forEach(function(key) {
+            const oldKey = oldPrefix + key;
+            const newKey = newPrefix + key;
+            const oldVal = localStorage.getItem(oldKey);
+            if (oldVal !== null && localStorage.getItem(newKey) === null) {
+                localStorage.setItem(newKey, oldVal);
+            }
+        });
+    })();
 
     waitForApp(function () {
         const settings = app.ui.settings;
@@ -41,7 +56,8 @@
                             }
                         }
                         const toast = document.createElement("div");
-                        toast.textContent = "「" + name + "」已" + (value ? "开启" : "关闭") + "，刷新后生效";
+                        const displayName = name.replace(/^启用\s*/, "");
+                        toast.textContent = "「" + displayName + "」已" + (value ? "开启" : "关闭") + "，下拉保存设置";
                         toast.style.cssText = "position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:99999;background:rgba(40,40,40,0.95);color:#fff;padding:14px 24px;border-radius:8px;font-size:14px;box-shadow:0 4px 20px rgba(0,0,0,0.5);border-left:4px solid #3b82f6;transition:opacity .3s;width:380px;text-align:center;line-height:1.5;box-sizing:border-box;";
                         if (container) {
                             container.style.position = container.style.position || "relative";
@@ -77,12 +93,36 @@
             "修复 Node 2.0 下节点折叠后进入子图再回来，展开时大小丢失的问题。"
         );
 
-        // 3. 实时运行节点指示
+        // 3. 子图图像同步修复
+        addToggle(
+            "EnableSubgraphImageSync",
+            "启用子图图像同步修复",
+            true,
+            "修复子图外部选择图像后，子图内部 LoadImage/LoadImageMask 节点图像不更新的问题。"
+        );
+
+        // 4. 实时运行节点指示
         addToggle(
             "EnableRunIndicator",
             "启用实时运行节点指示",
             true,
             "右上角运行指示条（当前执行节点高亮、进度、等待区茶杯、槽位拖回辅助）。"
+        );
+
+        // 4. Photopea 图像编辑器
+        addToggle(
+            "EnablePhotopea",
+            "启用 Photopea 图像编辑器",
+            true,
+            "侧边栏 Photopea 选项卡，在线编辑图像。"
+        );
+
+        // 5. PoseEditor 姿势编辑器
+        addToggle(
+            "EnablePoseEditor",
+            "启用 PoseEditor 姿势编辑器",
+            true,
+            "侧边栏 PoseEditor 选项卡，编辑 OpenPose 姿势。"
         );
 
         console.log("[PT] 设置项已注册: Practical Tools");
@@ -124,12 +164,12 @@
             let ptCount = 0;
             for (const g of groups) {
                 const text = g.textContent || '';
-                if (text.includes('启用节点层级修复') || text.includes('启用折叠节点大小修复') || text.includes('启用实时运行节点指示')) {
+                if (text.includes('启用节点层级修复') || text.includes('启用折叠节点大小修复') || text.includes('启用实时运行节点指示') || text.includes('启用 Photopea') || text.includes('启用 PoseEditor')) {
                     ptCount++;
                     if (!ptContainer) ptContainer = g.parentElement;
                 }
             }
-            if (ptCount === 3 && ptContainer) {
+            if (ptCount >= 3 && ptContainer) {
                 if (!ptContainer.querySelector('#pt-save-refresh-btn')) {
                     const btnWrap = document.createElement('div');
                     btnWrap.style.cssText = 'margin-top:20px;padding-top:16px;border-top:1px solid rgba(255,255,255,0.12);text-align:center;';
