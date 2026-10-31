@@ -187,12 +187,7 @@ async function fetchRemoteLatest() {
         return null;
     }
 
-    // 缓存只增不减：镜像滞后时不要把已记下的新版本覆盖成旧版本
-    const incoming = normalizeLatestVersion(remote.text);
-    const previous = cached && cached.text ? normalizeLatestVersion(cached.text) : "";
-    if (!previous || !incoming || !isVersionNewer(previous, incoming)) {
-        writeRemoteCache({ text: remote.text, url: remote.url, checkedAt: Date.now() });
-    }
+    writeRemoteCache({ text: remote.text, url: remote.url, checkedAt: Date.now() });
     return remote;
 }
 

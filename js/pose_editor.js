@@ -33,14 +33,19 @@ let persistentOverlayTabBar = null; // 最大化覆盖层标签栏
 let maximizeBtn = null;
 let zoomResetBtn = null;
 
-// 动态检测插件目录名
+// 用模块自身地址推导插件根目录，与安装目录名无关
 function detectPluginBasePath() {
+    try {
+        // pose_editor.js 由 ComfyUI 以 ES 模块方式加载，
+        // import.meta.url 形如 http://host/extensions/<目录名>/pose_editor.js
+        return new URL("./", import.meta.url).pathname;
+    } catch (e) { /* 退回下面按 script 标签推断 */ }
     var scripts = document.querySelectorAll('script[src*="pose_editor.js"]');
     for (var i = 0; i < scripts.length; i++) {
         var m = scripts[i].src.match(/\/extensions\/([^/]+)\//);
         if (m) return "/extensions/" + m[1] + "/";
     }
-    return "/extensions/ComfyUI-Practical-Tools/";
+    return "/extensions/";
 }
 var PLUGIN_BASE = detectPluginBasePath();
 var EDITOR_URL = PLUGIN_BASE + "pose_editor/index.html?theme=dark";

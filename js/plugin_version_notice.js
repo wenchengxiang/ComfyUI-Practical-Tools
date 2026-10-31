@@ -440,16 +440,12 @@ async function getRemoteVersion() {
         return null;
     }
 
-    // 缓存只增不减：镜像滞后时不要把已记下的新版本覆盖成旧版本
-    const previous = (cached && cached.version) || "";
-    if (!previous || !remote.version || !isVersionNewer(previous, remote.version)) {
-        writeRemoteCache({
-            text: remote.text,
-            url: remote.url,
-            version: remote.version,
-            checkedAt: Date.now()
-        });
-    }
+    writeRemoteCache({
+        text: remote.text,
+        url: remote.url,
+        version: remote.version,
+        checkedAt: Date.now()
+    });
     return remote;
 }
 
