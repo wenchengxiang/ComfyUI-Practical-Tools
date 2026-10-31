@@ -1,6 +1,11 @@
-﻿// run_indicator.js — Practical-Tools 右上角运行指示条（v78）
+// run_indicator.js — Practical-Tools 右上角运行指示条（v79）
 //
-// v78（v77 基础上新增"运行等待区"茶杯图标）：
+// v79（v78 基础上统一悬浮提示样式）：
+//   * 进度条与茶杯的 tooltip 改用官方 reka tooltip 的同一组 class
+//     （bg rgb(23,23,24)、1px #494a50、radius 6px、padding 8/12、12px/15px、阴影）。
+//   * 箭头改为官方同款 10×5 SVG（path M0 6L6 0L12 6，fill/stroke 与框体一致）。
+//   * 气泡对齐到进度条中心（原先按外层 wrap 居中，会偏 18px）；茶杯气泡对齐茶杯中心。
+//// v78（v77 基础上新增"运行等待区"茶杯图标）：
 //   * 工作流节点多时运行画面卡——节点移出视口后 canvas 只渲染可见区域，变快。
 //   * 在指示条槽位左边加简约线条茶杯图标按钮：
 //     - 点一下：找当前 graph 中标题为"运行等待区"的子图节点，
@@ -491,6 +496,47 @@ function neighborColor(el) {
     return null;
 }
 
+// 官方 reka tooltip 同款气泡：复用同一组 class + 同款 10×5 SVG 箭头
+// （与画布工具栏「刷新画布」等按钮的悬浮提示逐项一致）
+const PT_TIP_BOX_CLASS =
+    "z-1700 max-w-96 rounded-md border border-border-default bg-base-background px-3 py-2 text-xs/tight whitespace-pre-line text-base-foreground shadow-interface";
+
+function makeOfficialTooltip(text) {
+    const tip = document.createElement("div");
+    tip.style.cssText = `
+        position: absolute; top: calc(100% + 8px); left: 50%; transform: translateX(-50%);
+        white-space: nowrap; max-width: none; z-index: 9999; pointer-events: none;
+        opacity: 0; visibility: hidden;
+    `;
+    const box = document.createElement("div");
+    box.className = PT_TIP_BOX_CLASS;
+    box.setAttribute("role", "tooltip");
+    box.setAttribute("data-slot", "tooltip-content");
+    box.style.cssText = "position:relative;white-space:nowrap;";
+    const label = document.createElement("div");
+    label.textContent = text;
+    box.appendChild(label);
+
+    // 箭头贴在气泡上边缘、指向上方（提示显示在按钮下方）
+    const arrow = document.createElement("span");
+    arrow.style.cssText =
+        "position:absolute;top:0;left:50%;margin-left:-5px;transform:translateY(-100%);line-height:0;";
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("width", "10");
+    svg.setAttribute("height", "5");
+    svg.setAttribute("viewBox", "0 0 12 6");
+    svg.setAttribute("preserveAspectRatio", "none");
+    svg.setAttribute("class", "-mt-px fill-base-background stroke-border-default");
+    svg.style.display = "block";
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute("d", "M0 6L6 0L12 6");
+    svg.appendChild(path);
+    arrow.appendChild(svg);
+    box.appendChild(arrow);
+
+    tip.appendChild(box);
+    return tip;
+}
 function mountToToolbar() {
     try {
         // 优先锚点："取消当前任务"（红X）-> pill 插到它右侧
@@ -551,35 +597,9 @@ function mountToToolbar() {
             flex-shrink: 0;
         `;
         cupWrap.appendChild(cupBtn);
-        // 茶杯 tooltip：复用 PrimeReact p-tooltip 结构/class
-        const cupTip = document.createElement("div");
-        cupTip.className = "pt-cup-tip p-tooltip p-component p-tooltip-bottom";
-        cupTip.style.cssText = `
-            position: absolute; top: calc(100% + 6px); left: 50%; transform: translateX(-50%);
-            white-space: nowrap; max-width: none; z-index: 9999; pointer-events: none;
-            opacity: 0; visibility: hidden;
-        `;
-        const cupTipArrow = document.createElement("div");
-        cupTipArrow.className = "p-tooltip-arrow";
-        cupTipArrow.style.cssText = `
-            display: block; position: absolute;
-            top: -3.75px; left: 50%; margin-left: -4px;
-            border-left: 3.75px solid transparent;
-            border-right: 3.75px solid transparent;
-            border-bottom: 3.75px solid rgb(63, 63, 70);
-        `;
-        const cupTipText = document.createElement("div");
-        cupTipText.className = "p-tooltip-text";
-        cupTipText.style.cssText = `
-            display: block; white-space: nowrap;
-            background: rgb(23, 23, 24); color: rgb(255, 255, 255);
-            border: 1.25px solid rgb(73, 74, 80); border-radius: 6px;
-            font-size: 12px; font-weight: 400; line-height: 12px;
-            padding: 4px 8px;
-        `;
-        cupTipText.textContent = "点击进入运行等待区，加快运行渲染";
-        cupTip.appendChild(cupTipArrow);
-        cupTip.appendChild(cupTipText);
+        // 茶杯 tooltip：官方 reka tooltip 同款气泡（深色框 + 同款 SVG 箭头）
+        const cupTip = makeOfficialTooltip("点击进入运行等待区，加快运行渲染");
+        cupTip.className = "pt-cup-tip";
         cupWrap.appendChild(cupTip);
 
         const pill = document.createElement("div");
@@ -633,37 +653,21 @@ function mountToToolbar() {
         `;
         labelEl.textContent = "实时运行节点";
         pill.appendChild(labelEl);
-        // tooltip：完全复用 PrimeReact p-tooltip 结构/class（背景、描边、圆角、文字全部一致）
-        const tip = document.createElement("div");
-        tip.className = "pt-tip p-tooltip p-component p-tooltip-bottom";
-        tip.style.cssText = `
-            position: absolute; top: calc(100% + 6px); left: 50%; transform: translateX(-50%);
-            display: none; white-space: nowrap; max-width: none; z-index: 9999; pointer-events: none;
-        `;
-        const tipArrow = document.createElement("div");
-        tipArrow.className = "p-tooltip-arrow";
-        tipArrow.style.cssText = `
-            display: block; position: absolute;
-            top: -3.75px; left: 50%; margin-left: -4px;
-            border-left: 3.75px solid transparent;
-            border-right: 3.75px solid transparent;
-            border-bottom: 3.75px solid rgb(63, 63, 70);
-        `;
-        const tipText = document.createElement("div");
-        tipText.className = "p-tooltip-text";
-        tipText.style.cssText = `
-            display: block; white-space: nowrap;
-            background: rgb(23, 23, 24); color: rgb(255, 255, 255);
-            border: 1.25px solid rgb(73, 74, 80); border-radius: 6px;
-            font-size: 12px; font-weight: 400; line-height: 12px;
-            padding: 4px 8px;
-        `;
-        tipText.textContent = "点击跳转实时运行节点处";
-        tip.appendChild(tipArrow);
-        tip.appendChild(tipText);
+        // tooltip：官方 reka tooltip 同款气泡（深色框 + 同款 SVG 箭头）
+        const tip = makeOfficialTooltip("点击跳转实时运行节点处");
+        tip.className = "pt-tip";
         wrap.appendChild(cupWrap);
         wrap.appendChild(pill);
         wrap.appendChild(tip);
+        // 气泡对齐到进度条中心（wrap 左侧还有茶杯按钮，不能直接用 wrap 的 50%）
+        try {
+            requestAnimationFrame(() => {
+                const w = document.getElementById("pt-run-indicator");
+                if (!w || !w.parentElement) return;
+                const tipEl = w.parentElement.querySelector(".pt-tip");
+                if (tipEl) tipEl.style.left = (w.offsetLeft + w.offsetWidth / 2) + "px";
+            });
+        } catch (e) {}
         // 取消当前任务（红X）-> 插到它右侧；其它锚点 -> 插到左边
         if (anchor === cancelBtn) {
             anchor.after(wrap);
@@ -737,7 +741,7 @@ function recenterWaitingRoom() {
         const canvas = app.canvas;
         if (!canvas || !canvas.ds || !canvas.graph) return null;
         const g = canvas.graph, ds = canvas.ds;
-        const labels = (g._nodes || []).filter(n => n && n.type === "Text Label");
+        const labels = (g._nodes || []).filter(n => n && n.type === "wcx_TextLabel");
         if (!labels.length) return null;
         const t1 = labels[0], t2 = labels[1] || labels[0];
         const W = canvas.canvas.clientWidth, H = canvas.canvas.clientHeight;
@@ -1026,13 +1030,20 @@ function applyTextLabelConfig(node, cfg) {
     node.properties["padding"] = cfg.padding;
 }
 
+function isWaitingRoomNode(n) {
+    if (!n || !n.subgraph) return false;
+    const title = String(n.title || "").trim();
+    const name = String(n.subgraph.name || "").trim();
+    return title === "运行等待区" || name === "运行等待区" || n.subgraph.__ptWR === true;
+}
+
 function findWaitingRoomNode() {
     try {
         const g = app.graph;
         if (!g || !g._nodes) return null;
         for (const n of g._nodes) {
             if (n.subgraph && Array.isArray(n.subgraph.nodes) &&
-                n.title && n.title.trim() === "运行等待区") {
+                isWaitingRoomNode(n)) {
                 return n;
             }
         }
@@ -1049,7 +1060,7 @@ function waitingRoomAnchorPos(g, selfNode) {
         let maxRight = -Infinity;
         for (const n of (g._nodes || [])) {
             if (!n || n === selfNode || !n.pos) continue;
-            if (n.subgraph && (n.title || "").trim() === "运行等待区") continue;
+            if (n.subgraph && isWaitingRoomNode(n)) continue;
             const w = (n.size && n.size[0]) || 200;
             if (n.pos[0] + w > maxRight) maxRight = n.pos[0] + w;
         }
@@ -1108,7 +1119,7 @@ function hookFitAllExcludeRoom() {
                 if (selCount === 0 && this.positionableItems && this.ds &&
                     typeof this.ds.animateToBounds === "function") {
                     const items = Array.from(this.positionableItems).filter(it => {
-                        return !(it && it.subgraph && (it.title || "").trim() === "运行等待区");
+                        return !(it && it.subgraph && isWaitingRoomNode(it));
                     });
                     let minX = 1e9, minY = 1e9, maxX = -1e9, maxY = -1e9, any = false;
                     for (const n of items) {
@@ -1152,7 +1163,7 @@ function hookDsFitToBoundsExcludeRoom() {
                 const g = app.canvas && app.canvas.graph;
                 if (g && e && Array.isArray(e) && e.length >= 4) {
                     const hasRoom = (g._nodes || []).some(function (n) {
-                        return n && n.subgraph && (n.title || "").trim() === "运行等待区";
+                        return n && n.subgraph && isWaitingRoomNode(n);
                     });
                     if (hasRoom) {
                         var boundsRight = e[0] + e[2];
@@ -1160,7 +1171,7 @@ function hookDsFitToBoundsExcludeRoom() {
                         // 等待区在包围盒右侧 +20000，正常节点 bounds 不会超过 5000
                         if (boundsRight > 5000 || boundsBottom > 5000) {
                             var items = (g._nodes || []).filter(function (n) {
-                                return n && n.pos && !(n.subgraph && (n.title || "").trim() === "运行等待区");
+                                return n && n.pos && !(n.subgraph && isWaitingRoomNode(n));
                             });
                             if (items.length > 0) {
                                 var minX = 1e9, minY = 1e9, maxX = -1e9, maxY = -1e9;
@@ -1215,12 +1226,32 @@ function initDropzoneEnlarge() {
 
 // v101：工作流 tab 点击捕获——点击切换工作流前，若当前在等待区，先拉回顶层并恢复视图，
 // 使 ComfyUI 保存的当前工作流状态为顶层，切回时直接恢复顶层，从源头消除等待区视觉残留。
+function __ptFindWorkflowTab(target) {
+    if (!target || !target.closest) return null;
+    return target.closest('[data-testid="workflow-tab"]')
+        || target.closest('.workflow-tab')
+        || target.closest('button.p-togglebutton')
+        || target.closest('.workflow-tabs .p-select-option');
+}
+
+function __ptIsWorkflowTabActive(tab) {
+    if (!tab) return false;
+    const trigger = tab.querySelector('[data-slot="tabs-trigger"]');
+    if (trigger) {
+        return trigger.getAttribute('data-state') === 'active'
+            || trigger.getAttribute('aria-selected') === 'true';
+    }
+    return tab.classList.contains('p-togglebutton-checked')
+        || tab.classList.contains('p-highlight')
+        || tab.getAttribute('aria-selected') === 'true';
+}
+
 function bindWorkflowTabClick() {
     if (window.__PT_BOUND_TAB_CLICK__) return;
     window.__PT_BOUND_TAB_CLICK__ = true;
     document.addEventListener("click", function (e) {
         try {
-            const tab = e.target && e.target.closest && e.target.closest("button.p-togglebutton");
+            const tab = __ptFindWorkflowTab(e.target);
             if (!tab) return;
             const canvas = app.canvas;
             if (!canvas || !inWaitingRoom()) return;
@@ -1252,7 +1283,7 @@ function bindWorkflowSwitchForceTop() {
         function topSig() {
             try {
                 return (app.graph && app.graph._nodes || [])
-                    .filter(function (n) { return !(n && n.subgraph && (n.title || "").trim() === "运行等待区"); })
+                    .filter(function (n) { return !(n && n.subgraph && isWaitingRoomNode(n)); })
                     .map(function (n) { return String(n.id); }).sort().join(",");
             } catch (e) { return ""; }
         }
@@ -1282,6 +1313,7 @@ function bindWorkflowSwitchForceTop() {
         let checkUntil = 0;   // 切换后检查窗口
         let restored = false; // 本次切换是否已恢复视图
         setInterval(function () {
+            if (document.hidden) return;
             try {
                 const h = location.hash;
                 const s = topSig();
@@ -1315,7 +1347,7 @@ function bindWorkflowSwitchForceTop() {
                             const ds = canvas && canvas.ds;
                             if (g && ds) {
                                 const hasRoom = (g._nodes || []).some(function (n) {
-                                    return n && n.subgraph && (n.title || "").trim() === "运行等待区";
+                                    return n && n.subgraph && isWaitingRoomNode(n);
                                 });
                                 if (hasRoom) {
                                     // 计算当前视图可见的世界坐标范围
@@ -1352,7 +1384,7 @@ function bindSubgraphOpen() {
             if (!sg) return;
             const isRoom = sg.__ptWR === true
                 || (sg.name && String(sg.name).trim() === "运行等待区")
-                || (d.fromNode && String(d.fromNode.title || "").trim() === "运行等待区");
+                || (d.fromNode && isWaitingRoomNode(d.fromNode));
             if (!isRoom) return;
             sg.__ptWR = true;
             const home = d.closingGraph || (d.fromNode && d.fromNode.graph) || app.graph;
@@ -1364,14 +1396,15 @@ function bindSubgraphOpen() {
                 // 持久化到等待区节点 properties（跨工作流切换后对象重建仍保留，供 restoreHomeView 恢复原布局）
                 try {
                     let roomNode = d.fromNode;
-                    if (!roomNode || String(roomNode.title || "").trim() !== "运行等待区") {
+                    if (!roomNode || !isWaitingRoomNode(roomNode)) {
                         roomNode = (home && home._nodes || []).find(function (n) {
-                            return n && n.subgraph && String(n.title || "").trim() === "运行等待区";
+                            return n && n.subgraph && isWaitingRoomNode(n);
                         });
                     }
                     if (roomNode) {
                         if (!roomNode.properties) roomNode.properties = {};
                         roomNode.properties.pt_home_view = hv;
+                        saveWaitingRoomHomeView(roomNode, hv);
                     }
                 } catch (e) {}
             }
@@ -1410,7 +1443,7 @@ function fitHomeExcludingRoom(home) {
         const cw = (canvas.canvas && canvas.canvas.clientWidth) || window.innerWidth;
         const ch = (canvas.canvas && canvas.canvas.clientHeight) || window.innerHeight;
         const real = (home._nodes || []).filter(n => n && n.pos &&
-            !(n.subgraph && (n.title || "").trim() === "运行等待区"));
+            !(n.subgraph && isWaitingRoomNode(n)));
         if (!real.length) { ds.scale = 1; ds.offset = [150, 150]; return; }
         let minX = 1e9, minY = 1e9, maxX = -1e9, maxY = -1e9;
         for (const n of real) {
@@ -1426,6 +1459,533 @@ function fitHomeExcludingRoom(home) {
         const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
         ds.scale = s;
         ds.offset = [cw / 2 - cx * s, ch / 2 - cy * s];
+    } catch (e) {}
+}
+
+// v121：刷新/初始加载后，ComfyUI 可能再次恢复“包含等待区”的视图。
+// 在加载完成后的窗口期内持续纠正，直到等待区不再出现在视口内，或用户主动操作画布。
+let __ptInitialViewTimer = null;
+let __ptInitialViewUntil = 0;
+let __ptInitialViewOff = null;
+
+function stopInitialViewFix() {
+    try {
+        if (__ptInitialViewTimer) {
+            clearTimeout(__ptInitialViewTimer);
+            __ptInitialViewTimer = null;
+        }
+        if (__ptInitialViewOff) {
+            __ptInitialViewOff();
+            __ptInitialViewOff = null;
+        }
+    } catch (e) {}
+}
+
+function waitingRoomInView() {
+    try {
+        const canvas = app.canvas;
+        const ds = canvas && canvas.ds;
+        const g = app.graph;
+        if (!canvas || !ds || !g || !Array.isArray(g._nodes)) return false;
+        // 只在顶层主图判断；进入子图/等待区时不干预
+        if (canvas.graph && canvas.graph !== g) return false;
+        if (!(ds.scale > 0) || !ds.offset) return false;
+
+        const room = g._nodes.find(function (n) {
+            return n && n.subgraph && isWaitingRoomNode(n);
+        });
+        if (!room || !room.pos) return false;
+
+        const cw = (canvas.canvas && canvas.canvas.clientWidth) || window.innerWidth;
+        const ch = (canvas.canvas && canvas.canvas.clientHeight) || window.innerHeight;
+        const left = -ds.offset[0] / ds.scale;
+        const top = -ds.offset[1] / ds.scale;
+        const right = left + cw / ds.scale;
+        const bottom = top + ch / ds.scale;
+        const rw = (room.size && room.size[0]) || 200;
+        const rh = (room.size && room.size[1]) || 100;
+
+        return room.pos[0] < right && room.pos[0] + rw > left &&
+               room.pos[1] < bottom && room.pos[1] + rh > top;
+    } catch (e) {
+        return false;
+    }
+}
+
+// v143：刷新前主图视图记忆。只记忆顶层主图，不记忆等待室/子图视图。
+// 刷新后优先恢复它；没有记录时才走官方的 fit / 排除等待区取景。
+const __PT_ROOT_VIEW_PREFIX = "PracticalTools.RootView.";
+// 关闭自定义视图记忆/守卫：恢复官方视图逻辑，仅保留 fit 排除等待室 hook
+const __PT_CUSTOM_VIEW_HACKS = false;
+let __ptRootViewFirstLoad = true;
+let __ptInitialViewHandled = false;
+let __ptRootViewSaveTimer = 0;
+let __ptRootViewTrackingInstalled = false;
+let __ptInitialViewRetries = 0;
+let __ptRootViewRestoreToken = 0;
+let __ptRootViewGuardTimer = 0;
+let __ptRootViewGuardActive = false;
+let __ptRootViewLastSaved = null;
+let __ptPersistentRoomGuardUserInteracted = false;
+let __ptPersistentRoomGuardInstalled = false;
+
+function rootViewStorageKeys() {
+    const keys = [];
+    try {
+        const wf = app.workflowManager && app.workflowManager.activeWorkflow;
+        if (wf && wf.path) keys.push(__PT_ROOT_VIEW_PREFIX + wf.path);
+        if (wf && wf.key) keys.push(__PT_ROOT_VIEW_PREFIX + wf.key);
+    } catch (e) {}
+    try {
+        if (app.graph && app.graph.id != null) {
+            keys.push(__PT_ROOT_VIEW_PREFIX + "graph:" + app.graph.id);
+        }
+    } catch (e) {}
+    if (!keys.length) keys.push(__PT_ROOT_VIEW_PREFIX + "unknown");
+    return Array.from(new Set(keys));
+}
+
+function isRootCanvas() {
+    try {
+        const c = app.canvas;
+        if (!c || !c.ds || !app.graph) return false;
+        if (!c.graph) return true;
+        if (c.graph.isRootGraph === true) return true;
+        return c.graph === app.graph || c.graph === app.rootGraph;
+    } catch (e) {
+        return false;
+    }
+}
+
+function canUseRootView() {
+    try {
+        return !!(isRootCanvas() && !inWaitingRoom() && !app.configuringGraph);
+    } catch (e) {
+        return false;
+    }
+}
+
+function saveRootViewNow(force) {
+    if (!__PT_CUSTOM_VIEW_HACKS) return;
+    try {
+        if (!force && __ptRootViewGuardActive) return;
+        if (!force && !canUseRootView()) return;
+        // 首次恢复完成前，不要用官方临时视图覆盖已有的本地记录
+        if (!__ptInitialViewHandled && !__ptRootViewLastSaved) return;
+        if (!isRootCanvas() || inWaitingRoom() || waitingRoomInView()) return;
+        const ds = app.canvas.ds;
+        if (!(ds.scale > 0) || !Array.isArray(ds.offset)) return;
+        const payload = JSON.stringify({
+            offset: [ds.offset[0], ds.offset[1]],
+            scale: ds.scale
+        });
+        // 同时按路径和 graph id 保存，避免刷新后 activeWorkflow 尚未就绪导致 key 不一致
+        rootViewStorageKeys().forEach(function (key) {
+            try { localStorage.setItem(key, payload); } catch (e) {}
+        });
+        __ptRootViewLastSaved = { offset: [ds.offset[0], ds.offset[1]], scale: ds.scale };
+    } catch (e) {}
+}
+
+function scheduleSaveRootView() {
+    clearTimeout(__ptRootViewSaveTimer);
+    __ptRootViewSaveTimer = setTimeout(saveRootViewNow, 250);
+}
+
+function loadRootView() {
+    const keys = rootViewStorageKeys();
+    for (const key of keys) {
+        try {
+            const raw = localStorage.getItem(key);
+            const hv = raw ? JSON.parse(raw) : null;
+            if (hv && Array.isArray(hv.offset) && typeof hv.scale === "number") return hv;
+        } catch (e) {}
+    }
+    return null;
+}
+
+function applyRootView(hv) {
+    try {
+        if (!hv || !app.canvas || !app.canvas.ds) return;
+        if (!isRootCanvas()) return;
+        app.canvas.ds.offset = [hv.offset[0], hv.offset[1]];
+        app.canvas.ds.scale = hv.scale;
+        if (typeof app.canvas.setDirty === "function") app.canvas.setDirty(true, true);
+    } catch (e) {}
+}
+
+function stopRootViewGuard() {
+    if (__ptRootViewGuardTimer) {
+        clearTimeout(__ptRootViewGuardTimer);
+        __ptRootViewGuardTimer = 0;
+    }
+    __ptRootViewGuardActive = false;
+}
+
+function startRootViewGuard(hv, token) {
+    stopRootViewGuard();
+    if (!hv) return;
+    __ptRootViewGuardActive = true;
+    const until = Date.now() + 15000;
+
+    function tick() {
+        __ptRootViewGuardTimer = 0;
+        if (!__ptRootViewGuardActive || token !== __ptRootViewRestoreToken) {
+            stopRootViewGuard();
+            return;
+        }
+        if (Date.now() > until) {
+            stopRootViewGuard();
+            return;
+        }
+        try {
+            if (!isRootCanvas()) {
+                stopRootViewGuard();
+                return;
+            }
+            const ds = app.canvas && app.canvas.ds;
+            if (!ds) return;
+            const dx = Math.abs((ds.offset && ds.offset[0] || 0) - hv.offset[0]);
+            const dy = Math.abs((ds.offset && ds.offset[1] || 0) - hv.offset[1]);
+            const dsc = Math.abs((ds.scale || 1) - hv.scale);
+            if (dx > 0.5 || dy > 0.5 || dsc > 0.0001) applyRootView(hv);
+        } catch (e) {}
+        __ptRootViewGuardTimer = setTimeout(tick, 100);
+    }
+
+    tick();
+}
+
+function rootViewWatchTick() {
+    try {
+        if (!__ptInitialViewHandled) return;
+        if (__ptRootViewGuardActive) return;
+        if (!canUseRootView()) return;
+        if (waitingRoomInView()) return;
+        const ds = app.canvas && app.canvas.ds;
+        if (!ds || !(ds.scale > 0) || !Array.isArray(ds.offset)) return;
+        const cur = { offset: [ds.offset[0], ds.offset[1]], scale: ds.scale };
+        const last = __ptRootViewLastSaved;
+        if (last &&
+            Math.abs(last.scale - cur.scale) < 0.0001 &&
+            Math.abs(last.offset[0] - cur.offset[0]) < 0.5 &&
+            Math.abs(last.offset[1] - cur.offset[1]) < 0.5) return;
+        saveRootViewNow();
+    } catch (e) {}
+}
+
+function rootViewIncludesRoom(hv) {
+    try {
+        const graph = app.graph;
+        const canvas = app.canvas;
+        if (!graph || !canvas || !hv || !(hv.scale > 0) || !Array.isArray(hv.offset)) return false;
+        const room = (graph._nodes || []).find(function (n) {
+            return n && n.subgraph && isWaitingRoomNode(n);
+        });
+        if (!room || !room.pos) return false;
+
+        const cw = (canvas.canvas && canvas.canvas.clientWidth) || window.innerWidth;
+        const ch = (canvas.canvas && canvas.canvas.clientHeight) || window.innerHeight;
+        const left = -hv.offset[0] / hv.scale;
+        const top = -hv.offset[1] / hv.scale;
+        const right = left + cw / hv.scale;
+        const bottom = top + ch / hv.scale;
+        const rw = (room.size && room.size[0]) || 200;
+        const rh = (room.size && room.size[1]) || 100;
+
+        return room.pos[0] < right && room.pos[0] + rw > left &&
+               room.pos[1] < bottom && room.pos[1] + rh > top;
+    } catch (e) {
+        return false;
+    }
+}
+
+let __ptRoomGuardTimer = 0;
+let __ptRoomGuardUntil = 0;
+let __ptRoomGuardOff = null;
+
+function stopRoomVisibilityGuard() {
+    if (__ptRoomGuardTimer) {
+        clearTimeout(__ptRoomGuardTimer);
+        __ptRoomGuardTimer = 0;
+    }
+    if (__ptRoomGuardOff) {
+        __ptRoomGuardOff();
+        __ptRoomGuardOff = null;
+    }
+}
+
+function startRoomVisibilityGuard() {
+    if (!__PT_CUSTOM_VIEW_HACKS) return;
+    try {
+        stopRoomVisibilityGuard();
+        const canvas = app.canvas;
+        if (!canvas || !canvas.canvas || !isRootCanvas()) return;
+
+        __ptRoomGuardUntil = Date.now() + 30000;
+        const cancel = function () { stopRoomVisibilityGuard(); };
+        canvas.canvas.addEventListener("pointerdown", cancel, true);
+        canvas.canvas.addEventListener("wheel", cancel, { capture: true, passive: true });
+        __ptRoomGuardOff = function () {
+            canvas.canvas.removeEventListener("pointerdown", cancel, true);
+            canvas.canvas.removeEventListener("wheel", cancel, true);
+        };
+
+        function tick() {
+            __ptRoomGuardTimer = 0;
+            if (Date.now() > __ptRoomGuardUntil) {
+                stopRoomVisibilityGuard();
+                return;
+            }
+            try {
+                if (isRootCanvas() && waitingRoomInView()) {
+                    fitHomeExcludingRoom(app.graph);
+                }
+            } catch (e) {}
+            __ptRoomGuardTimer = setTimeout(tick, 200);
+        }
+
+        tick();
+    } catch (e) {}
+}
+
+function rootViewHasRealNode(hv) {
+    try {
+        const graph = app.graph;
+        const canvas = app.canvas;
+        if (!graph || !canvas || !hv || !(hv.scale > 0) || !Array.isArray(hv.offset)) return false;
+        const cw = (canvas.canvas && canvas.canvas.clientWidth) || window.innerWidth;
+        const ch = (canvas.canvas && canvas.canvas.clientHeight) || window.innerHeight;
+        const left = -hv.offset[0] / hv.scale;
+        const top = -hv.offset[1] / hv.scale;
+        const right = left + cw / hv.scale;
+        const bottom = top + ch / hv.scale;
+
+        return (graph._nodes || []).some(function (n) {
+            if (!n || !n.pos || isWaitingRoomNode(n)) return false;
+            const w = (n.size && n.size[0]) || 200;
+            const h = (n.size && n.size[1]) || 100;
+            return n.pos[0] < right && n.pos[0] + w > left &&
+                   n.pos[1] < bottom && n.pos[1] + h > top;
+        });
+    } catch (e) {
+        return false;
+    }
+}
+
+function clearRootViewStorage() {
+    rootViewStorageKeys().forEach(function (key) {
+        try { localStorage.removeItem(key); } catch (e) {}
+    });
+    __ptRootViewLastSaved = null;
+}
+
+function tryRestoreRootView() {
+    if (!__PT_CUSTOM_VIEW_HACKS) return false;
+    if (!__ptRootViewFirstLoad || __ptInitialViewHandled) return false;
+    if (!isRootCanvas()) return false;
+    const hv = loadRootView();
+    if (!hv) return false;
+    // 保存的视图如果包含等待室，不要恢复；否则会先 fit 排除、再延迟跳回等待室
+    if (rootViewIncludesRoom(hv) || !rootViewHasRealNode(hv)) {
+        // 无效记录（等待室视图/看不到主图节点）：清掉，改走 fit
+        clearRootViewStorage();
+        return false;
+    }
+
+    // 先标记恢复中，避免 watcher 在 apply 前把官方临时视图写回 localStorage
+    __ptRootViewGuardActive = true;
+    __ptInitialViewHandled = true;
+    __ptRootViewFirstLoad = false;
+
+    const token = ++__ptRootViewRestoreToken;
+    const apply = function () {
+        if (token !== __ptRootViewRestoreToken) return;
+        applyRootView(hv);
+    };
+    apply();
+    // 官方可能在 afterLoadGraph 之后才完成相机设置，延迟重放
+    setTimeout(apply, 40);
+    setTimeout(apply, 180);
+    setTimeout(apply, 500);
+    setTimeout(apply, 900);
+    setTimeout(apply, 1500);
+    setTimeout(apply, 2500);
+    startRootViewGuard(hv, token);
+    return true;
+}
+
+function handleInitialView() {
+    if (!__PT_CUSTOM_VIEW_HACKS) return;
+    if (__ptInitialViewHandled) return;
+
+    const graph = app.graph;
+    const wf = app.workflowManager && app.workflowManager.activeWorkflow;
+    const wfReady = !!(wf && (wf.path || wf.key));
+    if (app.configuringGraph || !wfReady || !graph || !Array.isArray(graph._nodes) || graph._nodes.length === 0) {
+        // 启动时可能先加载默认/空白工作流；不要提前消费掉目标工作流的首次恢复机会。
+        if (__ptInitialViewRetries++ < 100) {
+            setTimeout(handleInitialView, 300);
+        } else {
+            __ptInitialViewHandled = true;
+            __ptRootViewFirstLoad = false;
+            scheduleInitialViewFix();
+        }
+        return;
+    }
+
+    if (tryRestoreRootView()) {
+        startRoomVisibilityGuard();
+        return;
+    }
+    __ptInitialViewHandled = true;
+    __ptRootViewFirstLoad = false;
+    scheduleInitialViewFix();
+    startRoomVisibilityGuard();
+}
+
+function installRootViewTracking() {
+    if (!__PT_CUSTOM_VIEW_HACKS) return;
+    if (__ptRootViewTrackingInstalled) return;
+    const canvas = app.canvas;
+    if (!canvas || !canvas.canvas) {
+        setTimeout(installRootViewTracking, 300);
+        return;
+    }
+    __ptRootViewTrackingInstalled = true;
+    canvas.canvas.addEventListener("pointerup", scheduleSaveRootView, true);
+    window.addEventListener("pointerup", scheduleSaveRootView, true);
+    canvas.canvas.addEventListener("wheel", scheduleSaveRootView, { capture: true, passive: true });
+    // 用户开始操作后，取消后续的视图恢复重放
+    canvas.canvas.addEventListener("pointerdown", function () {
+        __ptRootViewRestoreToken++;
+        stopRootViewGuard();
+    }, true);
+    canvas.canvas.addEventListener("wheel", function () {
+        __ptRootViewRestoreToken++;
+        stopRootViewGuard();
+    }, { capture: true, passive: true });
+    window.addEventListener("pagehide", function () { saveRootViewNow(true); });
+    setInterval(rootViewWatchTick, 500);
+    window.addEventListener("beforeunload", function () { saveRootViewNow(true); });
+    document.addEventListener("visibilitychange", function () {
+        if (document.hidden) saveRootViewNow(true);
+    });
+}
+
+function installPersistentRoomGuard() {
+    if (!__PT_CUSTOM_VIEW_HACKS) return;
+    if (__ptPersistentRoomGuardInstalled) return;
+    const canvas = app.canvas;
+    if (!canvas || !canvas.canvas) {
+        setTimeout(installPersistentRoomGuard, 300);
+        return;
+    }
+    __ptPersistentRoomGuardInstalled = true;
+
+    const disable = function () {
+        __ptPersistentRoomGuardUserInteracted = true;
+    };
+    canvas.canvas.addEventListener("pointerdown", disable, true);
+    canvas.canvas.addEventListener("wheel", disable, { capture: true, passive: true });
+
+    setInterval(function () {
+        if (document.hidden || __ptPersistentRoomGuardUserInteracted) return;
+        try {
+            if (isRootCanvas() && waitingRoomInView()) {
+                fitHomeExcludingRoom(app.graph);
+            }
+        } catch (e) {}
+    }, 250);
+}
+
+// 诊断用：控制台执行 __ptRoomDebug() 查看等待室识别/视口状态
+try {
+    window.__ptRoomDebug = function () {
+        const n = findWaitingRoomNode();
+        return {
+            root: isRootCanvas(),
+            inView: waitingRoomInView(),
+            room: n ? {
+                id: n.id,
+                title: n.title,
+                subgraphName: n.subgraph && n.subgraph.name,
+                pos: n.pos,
+                size: n.size
+            } : null
+        };
+    };
+} catch (e) {}
+
+// 诊断用：控制台执行 __ptRootView.peek() 查看是否有保存记录
+try {
+    window.__ptRootView = {
+        keys: rootViewStorageKeys,
+        peek: function () {
+            return rootViewStorageKeys().map(function (key) {
+                return { key: key, value: localStorage.getItem(key) };
+            });
+        },
+        save: function () { saveRootViewNow(true); },
+        load: loadRootView,
+        state: function () {
+            return {
+                firstLoad: __ptRootViewFirstLoad,
+                handled: __ptInitialViewHandled,
+                retries: __ptInitialViewRetries,
+                canUse: canUseRootView(),
+                lastSaved: __ptRootViewLastSaved,
+                roomInView: waitingRoomInView()
+            };
+        }
+    };
+} catch (e) {}
+
+function scheduleInitialViewFix() {
+    if (!__PT_CUSTOM_VIEW_HACKS) return;
+    try {
+        stopInitialViewFix();
+        const canvas = app.canvas;
+        if (!canvas || !canvas.canvas) return;
+
+        __ptInitialViewUntil = Date.now() + 15000;
+
+        // 用户主动操作画布后停止纠正，避免和手动平移/缩放打架
+        const cancel = function () { stopInitialViewFix(); };
+        canvas.canvas.addEventListener("pointerdown", cancel, true);
+        canvas.canvas.addEventListener("wheel", cancel, { capture: true, passive: true });
+        __ptInitialViewOff = function () {
+            canvas.canvas.removeEventListener("pointerdown", cancel, true);
+            canvas.canvas.removeEventListener("wheel", cancel, true);
+        };
+
+        let initialRoomFitDone = false;
+
+        function tick() {
+            __ptInitialViewTimer = null;
+            if (Date.now() > __ptInitialViewUntil) {
+                stopInitialViewFix();
+                return;
+            }
+            try {
+                const graph = app.graph;
+                const canvasGraph = canvas.graph;
+                if (graph && Array.isArray(graph._nodes) && (!canvasGraph || canvasGraph === graph)) {
+                    const hasRoom = graph._nodes.some(function (n) {
+                        return n && n.subgraph && isWaitingRoomNode(n);
+                    });
+                    // 刷新/加载后先强制 fit 一次（排除等待区），
+                    // 之后只有等待区又被官方适配拉进视口时才再次纠正。
+                    if (hasRoom && (!initialRoomFitDone || waitingRoomInView())) {
+                        fitHomeExcludingRoom(graph);
+                        initialRoomFitDone = true;
+                    }
+                }
+            } catch (e) {}
+            __ptInitialViewTimer = setTimeout(tick, 250);
+        }
+
+        tick();
     } catch (e) {}
 }
 
@@ -1451,6 +2011,39 @@ function updateCupBtnState() {
         }
     } catch (e) { /* ignore */ }
 }
+// v142：等待区进入前视图持久化。刷新后 __ptHomeView 会丢，但 localStorage 不会。
+// 读取优先级：运行时 sg.__ptHomeView -> roomNode.properties.pt_home_view -> localStorage -> fit 兜底。
+const __PT_HOME_VIEW_PREFIX = "PracticalTools.WaitingRoom.HomeView.";
+
+function waitingRoomStorageKey(roomNode) {
+    try {
+        const wf = app.workflowManager && app.workflowManager.activeWorkflow;
+        const id = (wf && (wf.path || wf.key || wf.name)) || "unknown";
+        return __PT_HOME_VIEW_PREFIX + id + "." + ((roomNode && roomNode.id) || "room");
+    } catch (e) {
+        return __PT_HOME_VIEW_PREFIX + "unknown";
+    }
+}
+
+function saveWaitingRoomHomeView(roomNode, hv) {
+    try {
+        if (!roomNode || !hv || !Array.isArray(hv.offset) || typeof hv.scale !== "number") return;
+        localStorage.setItem(waitingRoomStorageKey(roomNode), JSON.stringify({
+            offset: hv.offset.slice(),
+            scale: hv.scale
+        }));
+    } catch (e) {}
+}
+
+function loadWaitingRoomHomeView(roomNode) {
+    try {
+        const raw = localStorage.getItem(waitingRoomStorageKey(roomNode));
+        const hv = raw ? JSON.parse(raw) : null;
+        if (hv && Array.isArray(hv.offset) && typeof hv.scale === "number") return hv;
+    } catch (e) {}
+    return null;
+}
+
 function toggleWaitingRoom() {
     try {
         const canvas = app.canvas;
@@ -1460,17 +2053,44 @@ function toggleWaitingRoom() {
             document.body.classList.remove("pt-in-waiting-room");
             const sg = canvas.graph;
             const home = homeGraphOfRoom(sg);
-            const hv = sg && sg.__ptHomeView;
+
+            let roomNode = null;
+            try { roomNode = findWaitingRoomNode(); } catch (e) {}
+
+            // 刷新后 sg.__ptHomeView 丢失；依次回退到节点属性、localStorage。
+            let hv = sg && sg.__ptHomeView;
+            if (!hv && roomNode && roomNode.properties && roomNode.properties.pt_home_view) {
+                hv = roomNode.properties.pt_home_view;
+            }
+            if (!hv && roomNode) {
+                hv = loadWaitingRoomHomeView(roomNode);
+            }
+
+            const applyHomeView = function () {
+                try {
+                    if (hv && canvas.ds) {
+                        canvas.ds.offset = hv.offset.slice();
+                        canvas.ds.scale = hv.scale;
+                    } else {
+                        fitHomeExcludingRoom(home); // 无记录时取景到真实节点
+                    }
+                    if (typeof canvas.setDirty === "function") canvas.setDirty(true, true);
+                } catch (e) {}
+            };
+
             if (home && home !== canvas.graph && typeof canvas.setGraph === "function") {
                 canvas.setGraph(home);
-            }
-            if (hv && canvas.ds) {
-                canvas.ds.offset = hv.offset.slice();
-                canvas.ds.scale = hv.scale;
+                applyHomeView();
+                // setGraph 之后可能还有一次自动 bbox 适配，延迟重放
+                setTimeout(applyHomeView, 40);
+                setTimeout(applyHomeView, 180);
+                setTimeout(applyHomeView, 400);
+                // 返回后把恢复的主图视图记为新的“刷新前视图”
+                setTimeout(scheduleSaveRootView, 600);
             } else {
-                fitHomeExcludingRoom(home); // v84：刷新后无记录时取景到真实节点
+                applyHomeView();
             }
-            if (typeof canvas.setDirty === "function") canvas.setDirty(true, true);
+
             updateCupBtnState();
             document.body.classList.remove("pt-in-waiting-room");
             return;
@@ -1486,6 +2106,8 @@ function toggleWaitingRoom() {
         // v83：记录"家"工作流主图与进入前视图（写入等待区子图，随该工作流独立，互不串扰）
         const __homeGraph = canvas.graph;
         const __homeView = canvas.ds ? { offset: canvas.ds.offset.slice(), scale: (canvas.ds.scale || 1) } : null;
+        try { saveRootViewNow(); } catch (e) {}
+        try { saveWaitingRoomHomeView(wr, __homeView); } catch (e) {}
         // v78：先延迟清理（删临时 Note / 隐藏连接点 / 放两行 Text Label），
         //      清理完再切进——用户看不到删 Note 的过程
         setTimeout(() => {
@@ -1512,14 +2134,14 @@ function toggleWaitingRoom() {
                 }
                 // v104：放两行 Text Label——没有则按配置创建，已有则按配置更新（方案 B）
                 const roomCfg = getRoomConfig();
-                const existingLabels = (sg._nodes || []).filter(n => n && n.type === "Text Label");
+                const existingLabels = (sg._nodes || []).filter(n => n && n.type === "wcx_TextLabel");
                 if (existingLabels.length === 0) {
                     try {
-                        const tl1 = LiteGraph.createNode("Text Label");
+                        const tl1 = LiteGraph.createNode("wcx_TextLabel");
                         applyTextLabelConfig(tl1, roomCfg.line1);
                         tl1.pos = [100, 180];
                         sg.add(tl1);
-                        const tl2 = LiteGraph.createNode("Text Label");
+                        const tl2 = LiteGraph.createNode("wcx_TextLabel");
                         applyTextLabelConfig(tl2, roomCfg.line2);
                         tl2.pos = [100, 240];
                         sg.add(tl2);
@@ -1703,10 +2325,22 @@ function nodeName(id, graph) {
 
 app.registerExtension({
     name: "Practical-Tools.RunIndicator",
+
+    beforeLoadGraph() {
+        try { saveRootViewNow(true); } catch (e) {}
+    },
+
+    afterLoadGraph() {
+        // 新工作流/切换后重新启用等待室守卫
+        __ptPersistentRoomGuardUserInteracted = false;
+        // 等 activeWorkflow/path 和官方相机设置完成
+        setTimeout(handleInitialView, 150);
+    },
+
     async setup() {
         // 设置开关：未启用则直接退出
         try {
-            const enabled = app.ui.settings.getSettingValue("Practical-Tools.EnableRunIndicator", true);
+            const enabled = app.ui.settings.getSettingValue("Practical-Tools.EnableRunIndicator") ?? true;
             if (enabled === false) return;
         } catch (e) { /* 默认启用 */ }
 
@@ -1716,34 +2350,11 @@ app.registerExtension({
         hookDsFitToBoundsExcludeRoom(); // v110：加载工作流时 ds.fitToBounds 也排除等待区
         bindWorkflowTabClick(); // v101：点击工作流 tab 前先拉回顶层，从源头消除等待区视觉残留
         bindWorkflowSwitchForceTop(); // v91：切换工作流后强制目标显示节点区
-        // v120：重启/刷新后自动加载工作流是初始加载，不触发"切换"检测，
-        // 导致 v115 的视图修复不执行。此处主动做一次初始视图检查。
-        (function initialViewCheck() {
-            function check() {
-                try {
-                    const canvas = app.canvas;
-                    const g = app.graph;
-                    const ds = canvas && canvas.ds;
-                    if (!g || !ds) return;
-                    const hasRoom = (g._nodes || []).some(function (n) {
-                        return n && n.subgraph && (n.title || "").trim() === "运行等待区";
-                    });
-                    if (!hasRoom) return;
-                    const cw = (canvas.canvas && canvas.canvas.clientWidth) || window.innerWidth;
-                    const ch = (canvas.canvas && canvas.canvas.clientHeight) || window.innerHeight;
-                    const visRight = (-ds.offset[0] + cw) / ds.scale;
-                    const visBottom = (-ds.offset[1] + ch) / ds.scale;
-                    if (visRight > 5000 || visBottom > 5000) {
-                        if (typeof fitHomeExcludingRoom === "function") {
-                            fitHomeExcludingRoom(g);
-                        }
-                    }
-                } catch (e) {}
-            }
-            setTimeout(check, 500);
-            setTimeout(check, 1200);
-            setTimeout(check, 2000);
-        })();
+        // v143：记录/恢复主图视图；刷新后优先回到刷新前视图。
+        installRootViewTracking();
+        installPersistentRoomGuard();
+        // 兜底：afterLoadGraph 未触发时也执行一次初始视图处理。
+        setTimeout(handleInitialView, 3000);
         // 注入 hover 样式：wrap hover -> tooltip 显示 + pill 高亮（同活动任务按钮 hover 色）
         if (!document.getElementById("pt-ri-style")) {
             const st = document.createElement("style");
@@ -1764,13 +2375,45 @@ app.registerExtension({
                 #pt-run-indicator.pt-init {
                     box-shadow: inset 0 0 0 2px rgba(var(--pt-init-blue-rgb, 79, 156, 255), 1);
                 }
-                /* 进入等待区时隐藏当前工作流标签的蓝色指示线和文字高亮，暗示用户不在普通工作流中 */
-                body.pt-in-waiting-room .p-togglebutton.p-togglebutton-checked {
-                    border-bottom-color: transparent !important;
-                    color: rgb(161, 161, 170) !important;
+                /* 等待室中所有工作流标签禁用过渡动画，避免切换时闪烁（新版 TabsTrigger） */
+                body.pt-in-waiting-room .workflow-tab,
+                body.pt-in-waiting-room .workflow-tab *,
+                body.pt-in-waiting-room [data-slot="tabs-trigger"],
+                body.pt-in-waiting-room [data-slot="tabs-trigger"] * {
+                    transition: none !important;
                 }
-                body.pt-in-waiting-room .p-togglebutton.p-togglebutton-checked span {
+                /* 所有标签统一灰色、透明背景，包括激活/hover/focus */
+                body.pt-in-waiting-room .workflow-tabs .workflow-tab [data-slot="tabs-trigger"],
+                body.pt-in-waiting-room .workflow-tabs .workflow-tab [data-slot="tabs-trigger"][data-state="active"],
+                body.pt-in-waiting-room .workflow-tabs .workflow-tab [data-slot="tabs-trigger"]:hover,
+                body.pt-in-waiting-room .workflow-tabs .workflow-tab [data-slot="tabs-trigger"]:focus,
+                body.pt-in-waiting-room .workflow-tabs .workflow-tab [data-slot="tabs-trigger"]:focus-visible {
                     color: rgb(161, 161, 170) !important;
+                    background: transparent !important;
+                    background-color: transparent !important;
+                    background-image: none !important;
+                    box-shadow: none !important;
+                    border-color: transparent !important;
+                    outline: none !important;
+                }
+                body.pt-in-waiting-room .workflow-tabs .workflow-tab [data-slot="tabs-trigger"] > * {
+                    color: inherit !important;
+                }
+                body.pt-in-waiting-room .workflow-tabs .workflow-tab [data-testid="workflow-mode-icon"] {
+                    background-color: rgb(161, 161, 170) !important;
+                    opacity: 0.6 !important;
+                }
+                /* 激活标签的圆点/状态点变灰 */
+                body.pt-in-waiting-room .workflow-tabs .workflow-tab [data-slot="tabs-trigger"][data-state="active"] .rounded-full,
+                body.pt-in-waiting-room .workflow-tabs .workflow-tab [data-slot="tabs-trigger"][data-state="active"] [class*='dot'],
+                body.pt-in-waiting-room .workflow-tabs .workflow-tab [data-slot="tabs-trigger"][data-state="active"] [class*='pip'] {
+                    background-color: rgb(161, 161, 170) !important;
+                    opacity: 0.6 !important;
+                }
+                /* 关闭按钮恢复可见 */
+                body.pt-in-waiting-room .workflow-tabs .close-button {
+                    color: rgb(161, 161, 170) !important;
+                    opacity: 0.5 !important;
                 }
                 /* 进入等待区时隐藏面包屑导航 + 返回按钮，保留应用按钮和图形下拉菜单 */
                 body.pt-in-waiting-room .subgraph-breadcrumb nav.p-breadcrumb,
@@ -1783,14 +2426,22 @@ app.registerExtension({
         // 修复：PrimeReact 激活标签蓝色指示线可能显示为白色（页面加载/切换标签时），持续监听修复
         window.__ptFixTabBlueLine = function () {
             try {
-                if (document.body.classList.contains("pt-in-waiting-room")) return; // 等待区由 CSS 控制隐藏
-                // 只清除非激活标签的内联蓝色样式（不碰激活标签，避免竞态导致白色）
+                if (document.body.classList.contains("pt-in-waiting-room")) return;
+                // 新版 TabsTrigger 用 data-state 控制背景，不再有蓝色 border-bottom，
+                // 这里只清理旧版遗留的内联样式。
+                const triggers = document.querySelectorAll('[data-slot="tabs-trigger"]');
+                if (triggers.length) {
+                    triggers.forEach(function (tab) {
+                        if (tab.style.borderBottom) tab.style.borderBottom = "";
+                    });
+                    return;
+                }
+                // 旧版 PrimeVue 兼容逻辑
                 document.querySelectorAll(".p-togglebutton:not(.p-togglebutton-checked)").forEach(function (tab) {
                     if (tab.style.borderBottom && tab.style.borderBottom.indexOf("96, 165, 250") !== -1) {
                         tab.style.borderBottom = "";
                     }
                 });
-                // 再给激活标签设置蓝色
                 const tabs = document.querySelectorAll(".p-togglebutton.p-togglebutton-checked");
                 tabs.forEach(function (tab) {
                     const cs = window.getComputedStyle(tab);
@@ -1804,15 +2455,16 @@ app.registerExtension({
         new MutationObserver(window.__ptFixTabBlueLine).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["class"] });
         // 初始多次检查（覆盖 PrimeReact 初始化的不同时间点）
         [300, 600, 1000, 1500, 2000].forEach(function (t) { setTimeout(window.__ptFixTabBlueLine, t); });
-        setInterval(window.__ptFixTabBlueLine, 300); // 高频兜底轮询
+        setInterval(function () { if (!document.hidden) window.__ptFixTabBlueLine(); }, 1000); // 观察器已覆盖大部分变化，1 秒兜底
         // 全局拦截已激活工作流标签的点击：阻止 PrimeReact 重复点击取消激活（toggle off）的 bug
         document.addEventListener("click", function (e) {
             try {
                 // 排除关闭按钮点击（关闭按钮在标签内部，事件会冒泡到标签）
-                if (e.target.closest('[aria-label="关闭"]')) return;
-                const tab = e.target.closest(".p-togglebutton");
+                if (e.target.closest('[data-testid="close-workflow-button"]') || e.target.closest('[aria-label="关闭"]') || e.target.closest('[aria-label="Close"]')) return;
+                const tab = __ptFindWorkflowTab(e.target);
                 if (!tab) return;
-                if (!tab.classList.contains("p-togglebutton-checked")) return; // 只拦截已激活标签
+                const isActiveTab = __ptIsWorkflowTabActive(tab);
+                if (!isActiveTab) return; // 只拦截已激活标签
                 // 阻止 PrimeReact 的 toggle 行为，避免重复点击已激活标签导致蓝线消失
                 e.preventDefault();
                 e.stopPropagation();
@@ -1824,18 +2476,54 @@ app.registerExtension({
                 }
             } catch (err) { /* ignore */ }
         }, true);
-        // 进入等待区时隐藏当前工作流标签蓝色指示线（body class 切换，CSS 负责隐藏）
+        // 进入等待区时隐藏当前工作流标签蓝色指示线（body class 切换，CSS 负责样式）
         let _wasInRoom = false;
+        // MutationObserver：等待室中新出现的标签立即添加固定类，消除闪烁
+        let _tabObserver = null;
+        function startTabObserver() {
+            if (_tabObserver) return;
+            const container = document.querySelector(".workflow-tabs") || document.body;
+            _tabObserver = new MutationObserver(function (mutations) {
+                if (!document.body.classList.contains("pt-in-waiting-room")) return;
+                mutations.forEach(function (m) {
+                    m.addedNodes.forEach(function (node) {
+                        if (node.nodeType === 1) {
+                            if (node.matches && node.matches('[data-testid="workflow-tab"], .workflow-tab, .p-togglebutton')) {
+                                node.classList.add("pt-waiting-tab");
+                            }
+                            if (node.querySelectorAll) {
+                                node.querySelectorAll('[data-testid="workflow-tab"], .workflow-tab, .p-togglebutton').forEach(function (t) {
+                                    t.classList.add("pt-waiting-tab");
+                                });
+                            }
+                        }
+                    });
+                });
+            });
+            _tabObserver.observe(container, { childList: true, subtree: true });
+        }
+        function stopTabObserver() {
+            if (_tabObserver) { _tabObserver.disconnect(); _tabObserver = null; }
+        }
         setInterval(function () {
+            if (document.hidden) return;
             try {
                 const inRoom = typeof inWaitingRoom === "function" ? inWaitingRoom() : false;
                 if (inRoom !== _wasInRoom) {
                     _wasInRoom = inRoom;
                     document.body.classList.toggle("pt-in-waiting-room", inRoom);
-                    // 退出等待区时立即修复一次蓝线（避免在等待区中切换标签后退出，蓝线残留白色）
-                    if (!inRoom && typeof window.__ptFixTabBlueLine === "function") {
-                        setTimeout(window.__ptFixTabBlueLine, 50);
-                        setTimeout(window.__ptFixTabBlueLine, 200);
+                    const tabs = document.querySelectorAll('[data-testid="workflow-tab"], .workflow-tab, .p-togglebutton');
+                    tabs.forEach(function (tab) {
+                        tab.classList.toggle("pt-waiting-tab", inRoom);
+                    });
+                    if (inRoom) {
+                        startTabObserver();
+                    } else {
+                        stopTabObserver();
+                        if (typeof window.__ptFixTabBlueLine === "function") {
+                            setTimeout(window.__ptFixTabBlueLine, 50);
+                            setTimeout(window.__ptFixTabBlueLine, 200);
+                        }
                     }
                 }
             } catch (e) { /* ignore */ }
@@ -1850,8 +2538,8 @@ app.registerExtension({
             } catch (e) { /* ignore */ }
         });
         _mountObserver.observe(document.body, { childList: true, subtree: true });
-        setInterval(mountToToolbar, 5000); // 低频兜底（极端情况）
-        setInterval(() => { try { updateCupBtnState(); } catch (e) {} }, 500); // v83：跨工作流即时刷新茶杯蓝框
+        setInterval(function () { if (!document.hidden) mountToToolbar(); }, 5000); // 低频兜底（极端情况）
+        setInterval(() => { if (document.hidden) return; try { updateCupBtnState(); } catch (e) {} }, 500); // v83：跨工作流即时刷新茶杯蓝框
 
         const $ = (id) => document.getElementById(id);
         const label = () => $("pt-run-label");
@@ -1967,7 +2655,7 @@ return null;
                 const labelEl = document.getElementById('pt-run-label');
                 if (!labelEl) return;
                 const currentText = labelEl.textContent || '';
-                if (!currentText || currentText === '实时运行节点' || currentText === '运行初始化…' || currentText === '完成') return;
+                if (!currentText || currentText === '实时运行节点' || currentText === '工作流运行初始化分析…' || currentText === '点击左侧茶杯加快渲染...' || currentText === '完成') return;
                 // 提取纯节点名（去掉计数前缀，支持 "X/Y • "、"X/Y/Z • " 两种格式）
                 const pureName = currentText.replace(/^\d+(\/\d+){1,2}\s*[•·]\s*/, '');
                 if (pureName) {
@@ -2025,6 +2713,7 @@ return null;
 
         // ---- 定时同步颜色（挂载时按钮可能未渲染，之后补同步） ----
         setInterval(() => {
+            if (document.hidden) return;
             const pill = document.getElementById(INDICATOR_ID);
             if (!pill) return;
             const runBtn = findRunButton();
@@ -2048,7 +2737,7 @@ return null;
         }, 2000);
         // v137：定期更新虚拟总进度（基于时间，需要定时刷新）
         setInterval(() => {
-            if (virtualProgressStartTime > 0) {
+            if (!document.hidden && virtualProgressStartTime > 0) {
                 updateTotal();
             }
         }, 500);
@@ -2117,6 +2806,7 @@ return null;
             const slowTarget = 90; // 渐近上限，永远不到
             const startTime = performance.now();
             simProgressIv = setInterval(() => {
+                if (document.hidden) return;
                 try {
                     if (hasRealProgress) { stopSimProgress(); return; }
                     const elapsed = performance.now() - startTime;
@@ -2181,35 +2871,24 @@ return null;
         };
         // 运行初始化：槽位内描边闪烁开/关（JS 驱动，绕开 CSS 动画级联覆盖）
         let initBlinkIv = null;
+        let initTextIv = null;
+        let initProgressIv = null;
+        let initProgressStartTime = 0;
         const setInit = (on) => {
             const pill = $("pt-run-indicator");
             if (!pill) return;
             if (on) {
-                // v108：初始化阶段隐藏进度条，避免显示上一次运行的残留颜色
+                // 初始化阶段：隐藏节点内小进度条、停止模拟进度；不再显示蓝色边框闪烁
                 showStep(false);
                 stopSimProgress();
-                pill.style.setProperty("--pt-init-blue-rgb", hexToRgb(blueColor));
-                pill.classList.add("pt-init");
-                if (initBlinkIv) clearInterval(initBlinkIv);
-                let phase = 0;
-                initBlinkIv = setInterval(() => {
-                    const el = $("pt-run-indicator");
-                    if (!el || !el.classList.contains("pt-init")) {
-                        clearInterval(initBlinkIv);
-                        initBlinkIv = null;
-                        return;
-                    }
-                    const rgb = hexToRgb(blueColor);
-                    // v102：不改变透明度，0.5s 间隔闪烁（显示/隐藏交替）
-                    if (el.style.boxShadow && el.style.boxShadow !== "none") {
-                        el.style.boxShadow = "none";
-                    } else {
-                        el.style.boxShadow = "inset 0 0 0 2px rgba(" + rgb + ", 1)";
-                    }
-                }, 800); // v121：闪烁间隔从500ms调慢到800ms
+                if (initBlinkIv) { clearInterval(initBlinkIv); initBlinkIv = null; }
+                pill.style.boxShadow = "";
             } else {
                 pill.classList.remove("pt-init");
                 if (initBlinkIv) { clearInterval(initBlinkIv); initBlinkIv = null; }
+                if (initTextIv) { clearInterval(initTextIv); initTextIv = null; }
+                if (initProgressIv) { clearInterval(initProgressIv); initProgressIv = null; }
+                initProgressStartTime = 0;
                 pill.style.boxShadow = "";
             }
         };
@@ -2525,7 +3204,7 @@ return null;
                 window.__pt_ri_key = key;
                 pill.style.pointerEvents = "auto";
                 pill.style.cursor = "pointer";
-                pill.title = "点击跳转到该节点";
+                pill.title = ""; /* 统一用自绘 tooltip，避免原生 title 再弹一个 */
             }
         };
 
@@ -2757,7 +3436,28 @@ return null;
             pendingStep = null;
             setInit(true);
             if (hadKey === null) {
-                show("运行初始化…", "left");
+                // 初始化阶段："工作流运行初始化分析…" 与 "点击左侧茶杯加快渲染..." 交替显示
+                const initTexts = ["工作流运行初始化分析…", "点击左侧茶杯加快渲染..."];
+                let initTextIdx = 0;
+                show(initTexts[0], "left");
+                if (initTextIv) clearInterval(initTextIv);
+                initTextIv = setInterval(() => {
+                    initTextIdx = (initTextIdx + 1) % initTexts.length;
+                    show(initTexts[initTextIdx], "left");
+                }, 1800);
+                // 初始化阶段：总进度条即开始缓慢出现，封顶20%（每秒推进1%）
+                initProgressStartTime = Date.now();
+                if (initProgressIv) clearInterval(initProgressIv);
+                setTotal(0);
+                initProgressIv = setInterval(() => {
+                    if (!initProgressStartTime) return;
+                    const elapsed = (Date.now() - initProgressStartTime) / 1000;
+                    // 0-15s 每秒1%到15%；之后每3秒1%，推进到20%封顶
+                    let pct = elapsed <= 15 ? elapsed : 15 + (elapsed - 15) / 3;
+                    pct = Math.min(20, pct);
+                    if (pct > lastPct) lastPct = pct;
+                    setTotal(pct);
+                }, 500);
             }
             setTotal(0);
             setStep(0);

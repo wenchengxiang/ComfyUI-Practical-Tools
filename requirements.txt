@@ -1,4 +1,6 @@
 onnxruntime
-nvidia-vfx
+nvidia-vfx>=0.2
+# python -m pip install -U --no-build-isolation nvidia-vfx --index-url https://pypi.nvidia.com/
 openai>=1.0.0
 gguf
+opencv-python

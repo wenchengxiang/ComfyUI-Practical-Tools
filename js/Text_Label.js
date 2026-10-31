@@ -28,7 +28,7 @@ import { app } from "../../scripts/app.js";
  * 关键点：必须设置 isVirtualNode = true（rgthree 的 Label 继承的
  * RgthreeBaseVirtualNode 也是这么做的）。前端 graphToPrompt 生成
  * 执行 prompt 时会跳过 isVirtualNode 的节点，否则节点会被当作
- * 后端节点发送，后端找不到 "Text Label" 类就报
+ * 后端节点发送，后端找不到 "wcx_TextLabel" 类就报
  * "missing_node_type: Node not found. The custom node may not be
  * installed."。
  * =====================================================================
@@ -37,7 +37,7 @@ import { app } from "../../scripts/app.js";
 class TextLabel extends LGraphNode {
 	constructor(title = "双击此处编辑文字") {
 		super(title);
-		this.comfyClass = "Text Label";
+		this.comfyClass = "wcx_TextLabel";
 		this.isVirtualNode = true; // 关键：纯前端虚拟节点，不参与后端执行
 		this.resizable = false;
 
@@ -177,8 +177,8 @@ class TextLabel extends LGraphNode {
 // =====================================================================
 // 静态定义（注册信息 + 属性面板元数据）
 // =====================================================================
-TextLabel.type = "Text Label";
-TextLabel.title = "Text Label";
+TextLabel.type = "wcx_TextLabel";
+TextLabel.title = "wcx_TextLabel";
 TextLabel.title_mode = LiteGraph.NO_TITLE; // 无标题栏
 TextLabel.collapsable = false;
 TextLabel.category = "Practical-Tools/utils";

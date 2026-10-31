@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """FlashVSR Ultra-Fast 节点（Practical-Tools 移植版）
 
@@ -327,9 +327,9 @@ class FlashVSR:
 
 
 NODE_CLASS_MAPPINGS = {
-    "FlashVSR": FlashVSR,
+    "wcx_FlashVSR": FlashVSR,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "FlashVSR": "FlashVSR",
+    "wcx_FlashVSR": "FlashVSR",
 }

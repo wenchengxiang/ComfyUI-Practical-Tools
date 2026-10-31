@@ -3,6 +3,10 @@
 import { app } from "../../scripts/app.js";
 
 
+
+const PT_DEBUG = (() => { try { return localStorage.getItem("PracticalTools.Debug") === "1"; } catch (e) { return false; } })();
+function ptLog(...args) { if (PT_DEBUG) console.log(...args); }
+
 // ================================================================
 // 递归查找子图内部的 LoadImage 节点
 // ================================================================
@@ -160,20 +164,20 @@ app.registerExtension({
     name: "PracticalTools.Photopea",
 
     setup() {
-        console.log("Practical-Tools Photopea: setup called");
+        ptLog("Practical-Tools Photopea: setup called");
 
         // 检查设置开关（延迟到设置系统就绪后再判断）
         const checkPhotopeaEnabled = () => {
             let enabled = true;
             try {
                 if (app.ui?.settings?.getSettingValue) {
-                    enabled = app.ui.settings.getSettingValue("Practical-Tools.EnablePhotopea", true);
+                    enabled = app.ui.settings.getSettingValue("Practical-Tools.EnablePhotopea") ?? true;
                 } else {
                     enabled = localStorage.getItem("Comfy.Settings.Practical-Tools.EnablePhotopea") !== "false";
                 }
             } catch (e) {}
             if (!enabled) {
-                console.log("Practical-Tools Photopea: disabled by settings");
+                ptLog("Practical-Tools Photopea: disabled by settings");
                 return true; // 返回 true 表示已禁用
             }
             return false;
@@ -752,7 +756,7 @@ app.registerExtension({
                     const result =
                         await response.json();
 
-                    console.log(
+                    ptLog(
                         "Practical-Tools Photopea: Uploaded:",
                         result.name
                     );

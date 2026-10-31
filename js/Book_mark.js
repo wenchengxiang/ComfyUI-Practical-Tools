@@ -1,5 +1,200 @@
 import { app } from "../../scripts/app.js";
 
+// =====================================================================
+// 书签透明度：默认 0.1（几乎透明），悬停或选中时强制不透明
+// =====================================================================
+const OPACITY_SETTING_ID = "Practical-Tools.BookmarkOpacity";
+
+function isBookmarkNode(node) {
+	return !!node && (node.type === "wcx_Bookmark" || node.comfyClass === "wcx_Bookmark");
+}
+
+function clampOpacity(value) {
+	const n = Number(value);
+	if (!isFinite(n)) return 0.1;
+	return Math.min(1, Math.max(0.1, n));
+}
+
+let bookmarkOpacityCache = null;
+
+function readBookmarkOpacity() {
+	if (bookmarkOpacityCache != null) return bookmarkOpacityCache;
+	try {
+		bookmarkOpacityCache = clampOpacity(app.ui.settings.getSettingValue(OPACITY_SETTING_ID) ?? 0.1);
+	} catch (e) {
+		bookmarkOpacityCache = 0.1;
+	}
+	return bookmarkOpacityCache;
+}
+
+/** 悬停或选中时返回 1，否则返回设置值 */
+function bookmarkAlphaFor(node, canvas) {
+	// 每次绘制都读设置值：不依赖 onChange 回调是否被触发
+	const base = readBookmarkOpacity();
+	if (base >= 1) return 1;
+	try {
+		const selected =
+			(node && node.is_selected === true) ||
+			!!(canvas && canvas.selected_nodes && canvas.selected_nodes[node.id]) ||
+			!!(canvas && canvas.selectedItems && canvas.selectedItems.has(node));
+		const hovered = !!canvas && canvas.node_over === node;
+		if (selected || hovered) return 1;
+	} catch (e) {}
+	return base;
+}
+
+/** 只在绘制书签节点时套一层 globalAlpha，其余节点走原逻辑 */
+function installBookmarkAlphaHook() {
+	try {
+		const proto = (typeof LGraphCanvas !== "undefined" && LGraphCanvas.prototype) || null;
+		if (!proto || typeof proto.drawNode !== "function") return;
+		if (proto.__ptBookmarkAlphaHooked) return;
+		const orig = proto.drawNode;
+		proto.drawNode = function (node, ctx) {
+			if (ctx && isBookmarkNode(node)) {
+				const alpha = bookmarkAlphaFor(node, this);
+				if (alpha < 1) {
+					ctx.save();
+					// 新版画布渲染会在内部把 globalAlpha 重置为 1，filter 才能穿透整段绘制
+					if (typeof ctx.filter === "string") {
+						ctx.filter = "opacity(" + Math.round(alpha * 100) + "%)";
+					} else {
+						ctx.globalAlpha = (ctx.globalAlpha == null ? 1 : ctx.globalAlpha) * alpha;
+					}
+					try {
+						return orig.apply(this, arguments);
+					} finally {
+						ctx.restore();
+					}
+				}
+			}
+			return orig.apply(this, arguments);
+		};
+		proto.__ptBookmarkAlphaHooked = true;
+	} catch (e) {}
+}
+
+// ---------------------------------------------------------------------
+// Node 2.0：节点由 DOM 渲染，透明度走 CSS；Node 1.0 走上面的 canvas 钩子
+// ---------------------------------------------------------------------
+const DOM_ATTR = "data-pt-bookmark";
+const DOM_STYLE_ID = "pt-bookmark-opacity-style";
+let domObserver = null;
+
+function ensureBookmarkDomStyle() {
+	try {
+		if (document.getElementById(DOM_STYLE_ID)) return;
+		const style = document.createElement("style");
+		style.id = DOM_STYLE_ID;
+		style.textContent =
+			'[' + DOM_ATTR + '="1"]{opacity:var(--pt-bm-opacity,0.1)!important;transition:opacity .12s ease;}' +
+			'[' + DOM_ATTR + '="1"]:hover,[' + DOM_ATTR + '="1"][data-pt-active="1"]{opacity:1!important;}';
+		document.head.appendChild(style);
+	} catch (e) {}
+}
+
+function findNodeById(id) {
+	try {
+		const canvas = app.canvas;
+		const current = canvas && canvas.getCurrentGraph ? canvas.getCurrentGraph() : null;
+		const graphs = [current, app.graph];
+		for (const g of graphs) {
+			if (g && typeof g.getNodeById === "function") {
+				const node = g.getNodeById(id) || g.getNodeById(Number(id));
+				if (node) return node;
+			}
+		}
+	} catch (e) {}
+	return null;
+}
+
+/** 给可见的 DOM 节点打标记：书签打上，其余清除 */
+function escapeNodeId(id) {
+	const text = String(id);
+	try {
+		return window.CSS && CSS.escape ? CSS.escape(text) : text.replace(/["\\]/g, "\\$&");
+	} catch (e) {
+		return text;
+	}
+}
+
+function markDomBookmarkNodes() {
+	try {
+		const container = document.getElementById("graph-canvas-container");
+		if (!container) return;
+
+		// 先清掉已经不再是书签的旧标记
+		const marked = container.querySelectorAll("[" + DOM_ATTR + '="1"]');
+		for (const el of marked) {
+			const node = findNodeById(el.getAttribute("data-node-id"));
+			if (!isBookmarkNode(node)) {
+				el.removeAttribute(DOM_ATTR);
+				el.removeAttribute("data-pt-active");
+			}
+		}
+
+		// 只遍历当前图里的书签节点，避免每 400ms 扫描全部 DOM 节点
+		const graph = (app.canvas && app.canvas.getCurrentGraph ? app.canvas.getCurrentGraph() : null) || app.graph;
+		if (!graph || !graph._nodes) return;
+		for (const node of graph._nodes) {
+			if (!isBookmarkNode(node)) continue;
+			const el = container.querySelector('[data-node-id="' + escapeNodeId(node.id) + '"]');
+			if (!el) continue;
+			if (el.getAttribute(DOM_ATTR) !== "1") el.setAttribute(DOM_ATTR, "1");
+			el.setAttribute("data-pt-active", node.is_selected ? "1" : "0");
+		}
+	} catch (e) {}
+}
+
+function applyBookmarkOpacity() {
+	bookmarkOpacityCache = null;
+	ensureBookmarkDomStyle();
+	try {
+		document.documentElement.style.setProperty("--pt-bm-opacity", String(readBookmarkOpacity()));
+	} catch (e) {}
+	markDomBookmarkNodes();
+}
+
+window.__ptApplyBookmarkOpacity = applyBookmarkOpacity;
+
+let domMarkScheduled = false;
+
+function scheduleDomMark() {
+	if (domMarkScheduled) return;
+	domMarkScheduled = true;
+	const run = function () {
+		domMarkScheduled = false;
+		markDomBookmarkNodes();
+	};
+	if (typeof requestAnimationFrame === "function") requestAnimationFrame(run);
+	else setTimeout(run, 50);
+}
+
+function watchBookmarkDomNodes() {
+	try {
+		if (domObserver) return;
+		const container = document.getElementById("graph-canvas-container");
+		if (!container || typeof MutationObserver === "undefined") return;
+		domObserver = new MutationObserver(function () {
+			if (readBookmarkOpacity() >= 1) return;
+			scheduleDomMark();
+		});
+		domObserver.observe(container, { childList: true, subtree: true });
+	} catch (e) {}
+}
+
+function pollBookmarkSelection() {
+	// 仅用于 Node 2.0：选中态没有写进 class/属性，只能看 node.is_selected
+	const run = function () {
+		if (document.hidden) return;
+		if (readBookmarkOpacity() >= 1) return;
+		markDomBookmarkNodes();
+	};
+	document.addEventListener("pointerup", run, true);
+	document.addEventListener("keyup", run, true);
+	setInterval(run, 1000);
+}
+
 /**
  * =====================================================================
  * Bookmark —— 书签节点（移植自 rgthree-comfy 的 Bookmark，已修正冲突）
@@ -157,7 +352,7 @@ function collectBookmarkNodes() {
 	const out = [];
 	const walk = (graph) => {
 		for (const n of graph.nodes ?? []) {
-			if (n.type === "Bookmark") out.push(n);
+			if (n.type === "wcx_Bookmark") out.push(n);
 			if (n.isSubgraphNode?.() && n.subgraph) walk(n.subgraph);
 		}
 	};
@@ -192,9 +387,9 @@ function getNextShortcut() {
 // Bookmark 节点
 // =====================================================================
 class Bookmark extends LGraphNode {
-	constructor(title = "Bookmark") {
+	constructor(title = "wcx_Bookmark") {
 		super(title);
-		this.comfyClass = "Bookmark";
+		this.comfyClass = "wcx_Bookmark";
 		this.isVirtualNode = true;
 		this.serialize_widgets = true; // 快捷键/缩放随工作流保存
 		this.___collapsed_width = 0;
@@ -209,11 +404,11 @@ class Bookmark extends LGraphNode {
 			y: 8,
 		});
 
-		// 缩放控件（0.5 ~ 2 倍）
+		// 缩放控件（0 ~ 10 倍）
 		this.addWidget("number", "zoom", 1, () => { }, {
 			y: 8 + LiteGraph.NODE_WIDGET_HEIGHT + 4,
-			max: 2,
-			min: 0.5,
+			max: 10,
+			min: 0,
 			precision: 2,
 		});
 
@@ -311,12 +506,18 @@ class Bookmark extends LGraphNode {
 // =====================================================================
 // 静态定义与注册
 // =====================================================================
-Bookmark.type = "Bookmark";
-Bookmark.title = "Bookmark";
+Bookmark.type = "wcx_Bookmark";
+Bookmark.title = "wcx_Bookmark";
 Bookmark.slot_start_y = -20;
 
 app.registerExtension({
 	name: "Practical-Tools.Bookmark",
+	async setup() {
+		installBookmarkAlphaHook();
+		watchBookmarkDomNodes();
+		applyBookmarkOpacity();
+		pollBookmarkSelection();
+	},
 	registerCustomNodes() {
 		LiteGraph.registerNodeType(Bookmark.type, Bookmark);
 		Bookmark.category = "Practical-Tools/utils"; // registerNodeType 会从类型推导分类，注册后覆盖

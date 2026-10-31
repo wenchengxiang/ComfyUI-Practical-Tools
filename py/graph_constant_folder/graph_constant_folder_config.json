@@ -1,0 +1,11 @@
+{
+	"ENABLED": 1,
+	"DEBUG": 0,
+	"VERBOSE": 0,
+	"PRUNE": 1,
+	"LOG": 0,
+	"FAST_CACHE": 1,
+	"FAST_CACHE_AUTOCHECK": 1,
+	"FAST_CACHE_FORCE": 0,
+	"REQUIRE_MARKER": 1
+}

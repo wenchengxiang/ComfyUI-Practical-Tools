@@ -203,22 +203,23 @@
         }
     }
 
-    // 设置开关：等待设置系统就绪后检查，未启用则不启动
-    let _initAttempts = 0;
-    function _tryStart() {
-        _initAttempts++;
-        try {
-            if (typeof app !== "undefined" && app.ui && app.ui.settings) {
-                const enabled = app.ui.settings.getSettingValue("Practical-Tools.EnableFoldedSizeFix", true);
-                if (enabled === false) return;
-                setInterval(checkNodes, 50);
-                return;
-            }
-        } catch (e) { /* 默认启用 */ }
-        if (_initAttempts < 100) setTimeout(_tryStart, 100);
-        else setInterval(checkNodes, 50);
-    }
-    _tryStart();
+    // 【已禁用 2026-10-29】官方已修复，不再需要 50ms 轮询
+    // // 设置开关：等待设置系统就绪后检查，未启用则不启动
+    // let _initAttempts = 0;
+    // function _tryStart() {
+    //     _initAttempts++;
+    //     try {
+    //         if (typeof app !== "undefined" && app.ui && app.ui.settings) {
+    //             const enabled = app.ui.settings.getSettingValue("Practical-Tools.EnableFoldedSizeFix", true);
+    //             if (enabled === false) return;
+    //             setInterval(checkNodes, 50);
+    //             return;
+    //         }
+    //     } catch (e) { /* 默认启用 */ }
+    //     if (_initAttempts < 100) setTimeout(_tryStart, 100);
+    //     else setInterval(checkNodes, 50);
+    // }
+    // _tryStart();
 })();
 
 
@@ -260,6 +261,130 @@
         return !!document.querySelector('#graph-canvas-container .ph-no-capture .lg-node');
     }
 
+    // 检测是否为 Node 1.0 模式（LiteGraph canvas 渲染）
+    function isNode1Mode() {
+        return !isNode2Mode();
+    }
+
+    // 检查是否有节点正在被拖动
+    function isDraggingNode() {
+        try {
+            if (app.canvas && app.canvas.dragging_node) return true;
+            if (app.canvas && app.canvas.node_dragged) return true;
+        } catch (e) {}
+        return false;
+    }
+
+    // ========================================================================
+    // Node 1.0 层级修复：重排 _nodes 数组，折叠节点在前，非折叠节点在后
+    // canvas 按数组顺序绘制，先画的在底层，后画的在上层
+    // 只在明确时机调用，不做定时轮询，避免干扰拖动/点击
+    // ========================================================================
+    let _lastNode1FixAt = 0;
+    function fixNode1Layers() {
+        try {
+            if (!isNode1Mode()) return; // 仅 Node 1.0 生效
+            const _now = Date.now();
+            if (_now - _lastNode1FixAt < 80) return;
+            _lastNode1FixAt = _now;
+            if (!app || !app.canvas || typeof app.canvas.bringToFront !== 'function') return;
+            const graph = getActiveGraph();
+            if (!graph || !graph._nodes || graph._nodes.length === 0) return;
+
+            // 使用官方 bringToFront API 设置层级
+            // 先把所有折叠节点 bringToFront（order 较小，底层）
+            // 再把所有非折叠节点 bringToFront（order 较大，上层）
+            const collapsed = [];
+            const expanded = [];
+            for (let i = 0; i < graph._nodes.length; i++) {
+                const node = graph._nodes[i];
+                if (node.flags && node.flags.collapsed) {
+                    collapsed.push(node);
+                } else {
+                    expanded.push(node);
+                }
+            }
+
+            // 按顺序 bringToFront：先折叠，后非折叠
+            // 这样非折叠节点的 order 会比折叠节点大，排在上面
+            for (let i = 0; i < collapsed.length; i++) {
+                app.canvas.bringToFront(collapsed[i]);
+            }
+            for (let i = 0; i < expanded.length; i++) {
+                app.canvas.bringToFront(expanded[i]);
+            }
+
+            // 触发重绘
+            if (graph.setDirtyCanvas) {
+                graph.setDirtyCanvas(true, true);
+            }
+        } catch (e) {}
+    }
+
+    // Node 1.0：patch collapse，折叠/展开后触发重排
+    function patchNode1Collapse() {
+        if (typeof LGraphNode === 'undefined' || !LGraphNode.prototype) return;
+        const proto = LGraphNode.prototype;
+        if (!proto.collapse || proto.__ptCollapsePatched) return;
+
+        const origCollapse = proto.collapse;
+        proto.collapse = function(force) {
+            const result = origCollapse.apply(this, arguments);
+            // 折叠/展开后延迟重排，等 LiteGraph 内部状态更新完
+            setTimeout(fixNode1Layers, 100);
+            return result;
+        };
+        proto.__ptCollapsePatched = true;
+    }
+
+    // ========================================================================
+    // Node 1.0 点击/拖动置顶：照搬 Node 2.0 setupNodeToFront 逻辑
+    // 非折叠节点移到数组末尾（最上层），折叠节点移到折叠组末尾
+    // ========================================================================
+    function setupNode1ToFront() {
+        function bringToFront1(node) {
+            try {
+                if (!node || !app || !app.canvas) return;
+                // 使用官方 bringToFront（内部调用 setNodeOrder 修改 order 属性）
+                if (typeof app.canvas.bringToFront === 'function') {
+                    app.canvas.bringToFront(node);
+                }
+            } catch (e) {}
+        }
+
+        // 拖动时立即置顶（左键按下 + 移动）
+        document.addEventListener('mousemove', function(e) {
+            if (e.buttons !== 1) return;
+            if (!app || !app.canvas) return;
+            let node = app.canvas.current_node;
+            if (!node && app.canvas.selected_nodes) {
+                const sel = app.canvas.selected_nodes;
+                const keys = Object.keys(sel);
+                if (keys.length > 0) {
+                    node = sel[keys[0]];
+                }
+            }
+            if (node) bringToFront1(node);
+        }, true);
+
+        // 点击节点时置顶 + 折叠/展开后重排
+        document.addEventListener('click', function(e) {
+            if (!app || !app.canvas) return;
+            const selected = app.canvas.selected_nodes;
+            if (selected) {
+                // selected_nodes 是以节点 id 为 key 的对象 { id: node }
+                let node = null;
+                const keys = Object.keys(selected);
+                if (keys.length > 0) {
+                    node = selected[keys[0]];
+                }
+                if (node) bringToFront1(node);
+            }
+            // 点击标题栏折叠/展开时不经过 node.collapse()，需在 click 后延迟重排
+            setTimeout(fixNode1Layers, 50);
+        }, false);
+    }
+
     // 获取当前活动的 graph（canvas 上实际渲染的图，可能是子图）
     function getActiveGraph() {
         if (app.canvas && app.canvas.graph) return app.canvas.graph;
@@ -284,6 +409,18 @@
         try {
             const graph = getActiveGraph();
             if (!graph || !graph._nodes) return;
+
+            // 没有折叠节点时不需要调整层级，避免每 2 秒全量扫描
+            let hasCollapsed = false;
+            for (let i = 0; i < graph._nodes.length; i++) {
+                const node = graph._nodes[i];
+                if (node && node.flags && node.flags.collapsed) {
+                    hasCollapsed = true;
+                    break;
+                }
+            }
+            if (!hasCollapsed) return;
+
             const container = document.querySelector('#graph-canvas-container .ph-no-capture');
             if (!container) return;
 
@@ -400,12 +537,31 @@
         return observer;
     }
 
+    let _node1FixSeq = 0;
+    function scheduleNode1Fixes(delays) {
+        const seq = ++_node1FixSeq;
+        for (let i = 0; i < delays.length; i++) {
+            setTimeout(function () {
+                if (seq !== _node1FixSeq) return;
+                fixNode1Layers();
+            }, delays[i]);
+        }
+    }
+
     function init() {
         if (typeof app === 'undefined' || !app.loadGraphData) {
             setTimeout(init, 100);
             return;
         }
 
+        // Node 1.0 修复：patch collapse + 点击/拖动置顶（执行时动态判断模式）
+        patchNode1Collapse();
+        setupNode1ToFront();
+
+        // Node 1.0 初始层级修复（init 时直接调用，不依赖 loadGraphData patch）
+        scheduleNode1Fixes([300, 1200]);
+
+        // Node 2.0 修复：CSS z-index 方案
         injectStyles();
         setupNodeToFront();
 
@@ -416,6 +572,9 @@
             if (isNode2Mode()) {
                 waitAndFix();
             }
+            // Node 1.0 加载后修复（同步 + 延迟多次，确保立即生效）
+            fixNode1Layers();
+            scheduleNode1Fixes([100, 800]);
             return result;
         };
 
@@ -426,6 +585,41 @@
                 updateAllNodes();
             }
         }, 1000);
+
+        // patch canvas.setGraph：切换图（等待室返回、子图切换等）后触发层级修复
+        function patchSetGraph() {
+            const canvas = app.canvas;
+            if (!canvas || typeof canvas.setGraph !== 'function' || canvas.__ptSetGraphPatched) return;
+            const origSetGraph = canvas.setGraph.bind(canvas);
+            canvas.setGraph = function() {
+                const result = origSetGraph.apply(this, arguments);
+                if (isNode2Mode()) {
+                    setTimeout(updateAllNodes, 500);
+                    setTimeout(updateAllNodes, 1200);
+                }
+                // Node 1.0 切换图后修复（同步 + 延迟多次，确保立即生效）
+                fixNode1Layers();
+                scheduleNode1Fixes([100, 800]);
+                return result;
+            };
+            canvas.__ptSetGraphPatched = true;
+        }
+        let patchAttempts = 0;
+        (function tryPatchSetGraph() {
+            patchAttempts++;
+            if (app.canvas && app.canvas.setGraph) {
+                patchSetGraph();
+            } else if (patchAttempts < 30) {
+                setTimeout(tryPatchSetGraph, 200);
+            }
+        })();
+
+        // 定时轮询兜底：每 2 秒全量检查一次
+        setInterval(function() {
+            if (isNode2Mode()) {
+                updateAllNodes();
+            }
+        }, 2000);
     }
 
     // 设置开关：等待设置系统就绪后检查，未启用则不初始化
@@ -434,7 +628,7 @@
         _initAttempts++;
         try {
             if (typeof app !== "undefined" && app.ui && app.ui.settings) {
-                const enabled = app.ui.settings.getSettingValue("Practical-Tools.EnableNodeLayerFix", true);
+                const enabled = app.ui.settings.getSettingValue("Practical-Tools.EnableNodeLayerFix") ?? true;
                 if (enabled === false) return;
                 init();
                 return;
@@ -594,7 +788,7 @@
         _syncInitAttempts++;
         try {
             if (typeof app !== "undefined" && app.ui && app.ui.settings) {
-                const enabled = app.ui.settings.getSettingValue("Practical-Tools.EnableSubgraphImageSync", true);
+                const enabled = app.ui.settings.getSettingValue("Practical-Tools.EnableSubgraphImageSync") ?? true;
                 if (enabled === false) return;
                 setInterval(syncSubgraphImages, 800);
                 return;

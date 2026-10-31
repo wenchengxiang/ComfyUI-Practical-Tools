@@ -1,0 +1,129 @@
+// fps_interaction_uncap.js
+// 问题：LiteGraph.Canvas.MaximumFps 设为非 0（如 60）时，拖动/缩放很流畅，
+// 但节点和组视觉上有错位（松开后对齐）。
+// 原因：官方限帧渲染循环按自己的节奏 setTimeout 调度，画的是“稍早的位置”，
+// 鼠标事件每帧都在更新位置，但中间的帧没有触发重画。
+// 方案：不改最大帧率（保持流畅度），只在交互期间按用户设置的帧率，
+// 对每一次鼠标移动/滚轮补一次“最新位置”的重画。重画频率仍然受用户帧率限制。
+
+(function () {
+	"use strict";
+
+	function getGraph() {
+		try { return window.app && window.app.canvas; } catch (e) { return null; }
+	}
+	function getCanvasEl() {
+		try { var g = getGraph(); return g && g.canvas; } catch (e) { return null; }
+	}
+	function settingFps() {
+		try {
+			return Number(window.app.ui.settings.getSettingValue("LiteGraph.Canvas.MaximumFps", 0)) || 0;
+		} catch (e) { return 0; }
+	}
+	function enabled() {
+		try {
+			return window.app.ui.settings.getSettingValue("Practical-Tools.EnableFpsInteractionUncap", true) !== false;
+		} catch (e) { return true; }
+	}
+
+	// 两次补画之间的最小间隔（毫秒），按用户帧率换算
+	function minGapMs() {
+		var fps = settingFps();
+		if (fps <= 0) return 0; // 用户本来就不限帧，走官方 rAF 即可
+		return Math.max(4, 1000 / fps);
+	}
+
+	function drawNow() {
+		var g = getGraph();
+		if (!g) return;
+		try { g.setDirty(true, true); } catch (e) {}
+		try { g.draw(); } catch (e) {}
+	}
+
+	function onDown() {
+		var g = getGraph();
+		if (!g || !enabled() || settingFps() === 0) return;
+		g.__ptFpsActive = true;
+		g.__ptLastDraw = 0;
+		drawNow();
+	}
+	function onMove() {
+		var g = getGraph();
+		if (!g || g.__ptFpsActive !== true) return;
+		var now = (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
+		var gap = minGapMs();
+		if (g.__ptLastDraw && now - g.__ptLastDraw < gap) return;
+		g.__ptLastDraw = now;
+		drawNow();
+	}
+	function onUp() {
+		var g = getGraph();
+		if (g) g.__ptFpsActive = false;
+	}
+	function onWheel() {
+		var g = getGraph();
+		if (!g || !enabled() || settingFps() === 0) return;
+		var now = (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
+		var gap = minGapMs();
+		if (g.__ptLastWheelDraw && now - g.__ptLastWheelDraw < gap) return;
+		g.__ptLastWheelDraw = now;
+		drawNow();
+	}
+
+	// 钩子：任何地方调用 setDirty(true,true)（书签跳转、撤销、缩放、resize 等）
+	// 都立即补一帧，不等限帧定时器；按用户帧率节流，避免重复重画
+	// 注意：只在画布变换（偏移/缩放）真正变化时才补画，避免子图切换等
+	// 大量节点重绘事件反复触发全量 draw
+	function hookSetDirty() {
+		try {
+			var proto = (typeof LGraphCanvas !== "undefined") && LGraphCanvas.prototype;
+			if (!proto || !proto.setDirty || proto.__ptSetDirtyHooked) return;
+			var orig = proto.setDirty;
+			proto.setDirty = function (a, b) {
+				orig.apply(this, arguments);
+				if (!enabled() || settingFps() === 0) return;
+				if (a !== true && b !== true) return;
+				try {
+					var off = this.ds && this.ds.offset;
+					var scale = this.ds && this.ds.scale;
+					var key = off ? (off[0].toFixed(2) + "," + off[1].toFixed(2) + "," + scale.toFixed(3)) : "";
+					if (this.__ptLastTransformKey === key) return;
+					this.__ptLastTransformKey = key;
+				} catch (e) {}
+				var now = (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
+				var gap = minGapMs();
+				if (this.__ptLastFullDraw && now - this.__ptLastFullDraw < gap) return;
+				this.__ptLastFullDraw = now;
+				try { this.draw(); } catch (e) {}
+			};
+			proto.__ptSetDirtyHooked = true;
+		} catch (e) {}
+	}
+
+	function bind() {
+		var el = getCanvasEl();
+		if (!el) return false;
+		hookSetDirty();
+		el.addEventListener("pointerdown", onDown, true);
+		window.addEventListener("pointerup", onUp, true);
+		window.addEventListener("pointercancel", onUp, true);
+		el.addEventListener("pointermove", onMove, { passive: true });
+		el.addEventListener("wheel", onWheel, { passive: true });
+		return true;
+	}
+
+	function start() {
+		if (bind()) return;
+		var tries = 0;
+		var timer = setInterval(function () {
+			if (bind() || ++tries >= 40) clearInterval(timer);
+		}, 500);
+		setTimeout(function () { clearInterval(timer); }, 20000);
+	}
+
+	if (document.readyState === "loading") {
+		document.addEventListener("DOMContentLoaded", start);
+	} else {
+		start();
+	}
+})();

@@ -228,6 +228,19 @@ function getVisibleSetNames(graph, filterType) {
 }
 
 // Force every PTGetNode (root + subgraphs) to swap its widget.options reference so Vue re-reads values.
+let _ptComboRefreshTimer = 0;
+let _ptComboRefreshGraph = null;
+function schedulePTGetNodeCombos(graph) {
+	_ptComboRefreshGraph = graph;
+	if (_ptComboRefreshTimer) return;
+	_ptComboRefreshTimer = setTimeout(function () {
+		_ptComboRefreshTimer = 0;
+		const g = _ptComboRefreshGraph;
+		_ptComboRefreshGraph = null;
+		try { refreshAllPTGetNodeCombos(g); } catch (e) {}
+	}, 50);
+}
+
 function refreshAllPTGetNodeCombos(graph) {
 	const root = findRootGraph(graph);
 	if (!root) return;
@@ -752,7 +765,7 @@ app.registerExtension({
 				const g = this.graph;
 				if (!g) return;
 				// Defer: onRemoved fires before _nodes is spliced, so getters still see this PTSetNode.
-				setTimeout(() => refreshAllPTGetNodeCombos(g), 0);
+				schedulePTGetNodeCombos(g);
 			}
 
 			onConfigure() {

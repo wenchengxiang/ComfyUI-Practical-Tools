@@ -1,0 +1,78 @@
+// fix_settings_warning.js — 拦截 ComfyUI 的 getSettingValue 弃用警告刷屏
+//
+// 背景：
+//   ComfyUI 新版里 app.ui.settings.getSettingValue(id, 默认值) 的第二个参数已废弃。
+//   只要调用时传了第二个参数，就会 console.warn 一条：
+//     "Parameter defaultValue is deprecated. The default value in settings
+//      definition will be used instead."
+//   有些代码在 mousemove / 重绘循环里反复调用，导致每秒几十条、几分钟几万条，
+//   把浏览器控制台拖死。
+//
+// 处理：
+//   1. 把 getSettingValue 包一层，只传第一个参数给原方法 —— 行为不变
+//      （默认值本来就以设置定义里的为准），但不再产生警告。
+//   2. 兜底：过滤掉这条特定的 console.warn，防止其他路径继续刷屏。
+//   3. 第一次遇到旧式调用时打印一次调用栈，方便定位是谁在热循环里调用。
+//
+// 这个文件可以长期保留，也可以定位到具体插件后删掉。
+
+(function () {
+    "use strict";
+
+    const DEPRECATION_PREFIX = "Parameter defaultValue is deprecated";
+
+    // ---- 兜底：过滤这条特定警告 ----
+    const originalWarn = console.warn;
+    let suppressed = 0;
+    console.warn = function () {
+        const first = arguments[0];
+        if (typeof first === "string" && first.indexOf(DEPRECATION_PREFIX) === 0) {
+            suppressed++;
+            if (suppressed === 1) {
+                try {
+                    console.info(
+                        "[PT] 已屏蔽 settings 弃用警告刷屏；首个调用栈：\n" +
+                        (new Error().stack || "")
+                    );
+                } catch (_) { /* 忽略 */ }
+            }
+            return;
+        }
+        return originalWarn.apply(this, arguments);
+    };
+
+    // ---- 主补丁：调用时不再传第二个参数 ----
+    function patch() {
+        const app = window.app;
+        const settings = app && app.ui && app.ui.settings;
+        if (!settings) return false;
+
+        const proto = Object.getPrototypeOf(settings);
+        if (!proto || typeof proto.getSettingValue !== "function") return false;
+        if (proto.getSettingValue.__ptNoDeprecatedDefault) return true;
+
+        const original = proto.getSettingValue;
+        const patched = function (id) {
+            if (arguments.length > 1 && !patched.__ptLogged) {
+                patched.__ptLogged = true;
+                try {
+                    console.info(
+                        "[PT] 检测到旧式 getSettingValue(id, 默认值) 调用（已忽略默认值）；调用栈：\n" +
+                        (new Error().stack || "")
+                    );
+                } catch (_) { /* 忽略 */ }
+            }
+            return original.call(this, id);
+        };
+        patched.__ptNoDeprecatedDefault = true;
+        proto.getSettingValue = patched;
+        return true;
+    }
+
+    let tries = 0;
+    (function boot() {
+        if (patch()) return;
+        if (++tries > 600) return; // 最多等 60 秒
+        setTimeout(boot, 100);
+    })();
+})();

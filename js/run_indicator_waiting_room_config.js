@@ -41,7 +41,7 @@
 window.PT_WAITING_ROOM_CONFIG = {
     // 第一行（大字）
     line1: {
-        text: "  大型工作流运行期间 在此处等待可加快渲染  ",
+        text: "  大型工作流运行期间 在此等待可加快渲染  ",
         fontSize: 42,
         lineHeight: 1.0,
         fontColor: "#ffffff",
@@ -54,7 +54,7 @@ window.PT_WAITING_ROOM_CONFIG = {
     },
     // 第二行（小字）
     line2: {
-        text: "  提醒：再次点茶杯或切换工作流 即可退出运行等待区  ",
+        text: "  提醒：再次点茶杯或点击任意工作流 即可退出运行等待区  ",
         fontSize: 18,
         lineHeight: 1.0,
         fontColor: "#ffffff50",

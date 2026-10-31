@@ -26,7 +26,7 @@ if not os.path.isdir(nodes_dir):
     nodes_dir = current_dir
 node_files = []
 # 需要跳过的核心模块目录（这些是依赖库，不是节点文件，用相对导入）
-_skip_dirs = {'gguf_core', '__pycache__', 'vosr2', 'flashvsr'}
+_skip_dirs = {'gguf_core', '__pycache__', 'vosr2', 'flashvsr', 'sesqui_lsr', 'tools'}
 for root, dirs, files in os.walk(nodes_dir):
     # 原地修改 dirs，跳过不需要遍历的目录
     dirs[:] = [d for d in dirs if d not in _skip_dirs]
@@ -79,3 +79,18 @@ _copy_assets_to_input()
 WEB_DIRECTORY = "./js"
 
 __all__ = ['NODE_CLASS_MAPPINGS', 'NODE_DISPLAY_NAME_MAPPINGS']
+
+# ===== GraphConstantFolder：提交前折叠常量开关、剪掉死分支 =====
+# 来自 ComfyUI-GraphConstantFolder（SparknightLLC），内联版在 py\graph_constant_folder\
+def _install_graph_constant_folder():
+    mod = sys.modules.get("graph_constant_folder")
+    if mod is None or not hasattr(mod, "install"):
+        print("[PT GraphFold] 未找到 graph_constant_folder 模块，跳过")
+        return
+    try:
+        mod.install()
+    except Exception as e:
+        print(f"[PT GraphFold] 安装失败: {e}")
+
+_install_graph_constant_folder()
+
