@@ -15,9 +15,13 @@ const STYLE_ID = "pt-plugin-node-notice-style";
 const REMOTE_CONFIG_URL = "https://raw.githubusercontent.com/wenchengxiang/ComfyUI-Practical-Tools/main/js/plugin_version_notice_config.js";
 const REMOTE_CONFIG_MIRRORS = [
     "https://cdn.jsdelivr.net/gh/wenchengxiang/ComfyUI-Practical-Tools@main/js/plugin_version_notice_config.js",
-    "https://raw.gitmirror.com/wenchengxiang/ComfyUI-Practical-Tools/main/js/plugin_version_notice_config.js"
+    "https://fastly.jsdelivr.net/gh/wenchengxiang/ComfyUI-Practical-Tools@main/js/plugin_version_notice_config.js",
+    "https://gcore.jsdelivr.net/gh/wenchengxiang/ComfyUI-Practical-Tools@main/js/plugin_version_notice_config.js"
 ];
 const REMOTE_CACHE_KEY = "PracticalTools.PluginRemoteVersion";
+const REMOTE_TTL_OK = 60 * 60 * 1000;   // 成功结果缓存 1 小时
+const REMOTE_TTL_FAIL = 10 * 60 * 1000; // 失败后 10 分钟内不再重试
+const REMOTE_HEDGE_MS = 4000;           // 主链接先等 4 秒，再让镜像补位
 
 const DEFAULT_REPO = "wenchengxiang/ComfyUI-Practical-Tools";
 const DEFAULT_CHECK_HOURS = 1;
@@ -44,6 +48,28 @@ function extractVersion(value) {
     const text = String(value == null ? "" : value).replace(/\r\n/g, "\n");
     const match = text.match(/v?\d+(?:\.\d+)+/i);
     return match ? match[0].toLowerCase().replace(/^v/, "") : "";
+}
+
+function versionParts(value) {
+    return String(value == null ? "" : value)
+        .replace(/^v/i, "")
+        .split("-")[0]
+        .split(".")
+        .map(function (part) { return parseInt(part, 10) || 0; });
+}
+
+// latest 是否严格大于 local
+function isVersionNewer(latest, local) {
+    const a = versionParts(latest);
+    const b = versionParts(local);
+    const len = Math.max(a.length, b.length);
+    for (let i = 0; i < len; i++) {
+        const x = a[i] || 0;
+        const y = b[i] || 0;
+        if (x > y) return true;
+        if (x < y) return false;
+    }
+    return false;
 }
 
 function collectNodesDeep(graph, out, seen) {
@@ -329,49 +355,123 @@ function parseRemoteConfig(raw) {
     };
 }
 
-function fetchWithTimeout(url, options, timeoutMs) {
+function fetchWithTimeout(url, options, timeoutMs, outerSignal) {
     if (typeof AbortController !== "function") return fetch(url, options);
     const controller = new AbortController();
     const timer = setTimeout(function () { controller.abort(); }, timeoutMs || 8000);
+    if (outerSignal) {
+        if (outerSignal.aborted) controller.abort();
+        else outerSignal.addEventListener("abort", function () { controller.abort(); }, { once: true });
+    }
     return fetch(url, Object.assign({}, options, { signal: controller.signal }))
         .finally(function () { clearTimeout(timer); });
 }
+// 先请求主链接；hedgeMs 内没拿到内容，再让镜像一起补上。
+// 主链接先回就用主链接 —— 镜像的定时器会被清掉，不会白发请求。
+// 镜像迟迟不回也不拖累主链接，最坏 = hedgeMs + timeout。
+function fetchHedged(urls, options, timeoutMs, hedgeMs, decode) {
+    return new Promise(function (resolve, reject) {
+        var settled = false;
+        var pending = 0;
+        var launched = 0;
+        var timers = [];
+        // 谁先赢就掐掉其余还在飞的请求，慢镜像不再白跑
+        var group = (typeof AbortController === "function") ? new AbortController() : null;
+
+        function finish(value) {
+            if (settled) return;
+            settled = true;
+            for (var i = 0; i < timers.length; i++) clearTimeout(timers[i]);
+            if (group) { try { group.abort(); } catch (e) { /* ignore */ } }
+            if (value) resolve(value);
+            else reject(new Error("all failed"));
+        }
+
+        function launch(url) {
+            if (settled) return;
+            launched++;
+            pending++;
+            fetchWithTimeout(url, options, timeoutMs, group ? group.signal : null).then(function (response) {
+                if (!response.ok) return "";
+                return decode ? decode(response) : response.text();
+            }).then(function (text) {
+                pending--;
+                if (text) { finish(text); return; }
+                if (!pending && launched >= urls.length) finish("");
+            }, function () {
+                pending--;
+                if (!pending && launched >= urls.length) finish("");
+            });
+        }
+
+        if (!urls.length) { finish(""); return; }
+        launch(urls[0]);
+        for (var i = 1; i < urls.length; i++) {
+            (function (url) {
+                timers.push(setTimeout(function () { launch(url); }, hedgeMs));
+            })(urls[i]);
+        }
+    });
+}
+
+function readRemoteCache() {
+    try {
+        return JSON.parse(localStorage.getItem(REMOTE_CACHE_KEY) || "null");
+    } catch (e) {
+        return null;
+    }
+}
+
+function writeRemoteCache(value) {
+    try {
+        localStorage.setItem(REMOTE_CACHE_KEY, JSON.stringify(value));
+    } catch (e) { /* ignore */ }
+}
 
 async function getRemoteVersion() {
-    try {
-        const cached = JSON.parse(localStorage.getItem(REMOTE_CACHE_KEY) || "null");
-        if (cached && cached.checkedAt && Date.now() - cached.checkedAt < 60 * 60 * 1000 &&
-            cached.text && cached.version) {
-            return cached;
-        }
-    } catch (e) { /* ignore */ }
+    const now = Date.now();
+    const cached = readRemoteCache();
+    if (cached && cached.text && cached.version && cached.checkedAt &&
+        now - cached.checkedAt < REMOTE_TTL_OK) {
+        return cached;
+    }
+    // 上次失败后 10 分钟内不再发请求
+    if (cached && cached.failedAt && now - cached.failedAt < REMOTE_TTL_FAIL) {
+        return null;
+    }
 
     const urls = [REMOTE_CONFIG_URL].concat(REMOTE_CONFIG_MIRRORS)
         .map(function (u) { return String(u || "").trim(); })
         .filter(function (u, i, arr) { return u && arr.indexOf(u) === i; });
 
+    // 主链接先发，2 秒没回再让镜像补位
     let raw = "";
-    for (const url of urls) {
-        try {
-            const response = await fetchWithTimeout(url, {}, 8000);
-            if (response.ok) {
-                raw = await response.text();
-                if (raw) break;
-            }
-        } catch (e) { /* try next mirror */ }
+    try {
+        raw = await fetchHedged(urls, {}, 8000, REMOTE_HEDGE_MS);
+    } catch (e) { /* 全部失败 */ }
+
+    const remote = raw ? parseRemoteConfig(raw) : null;
+    if (!remote) {
+        writeRemoteCache({
+            text: (cached && cached.text) || "",
+            url: (cached && cached.url) || "",
+            version: (cached && cached.version) || "",
+            checkedAt: (cached && cached.checkedAt) || 0,
+            failedAt: Date.now()
+        });
+        return null;
     }
 
-    if (!raw) return null;
-    const remote = parseRemoteConfig(raw);
-    if (!remote) return null;
-    try {
-        localStorage.setItem(REMOTE_CACHE_KEY, JSON.stringify({
+    // 缓存只增不减：镜像滞后时不要把已记下的新版本覆盖成旧版本
+    const previous = (cached && cached.version) || "";
+    if (!previous || !remote.version || !isVersionNewer(previous, remote.version)) {
+        writeRemoteCache({
             text: remote.text,
             url: remote.url,
             version: remote.version,
             checkedAt: Date.now()
-        }));
-    } catch (e) {}
+        });
+    }
     return remote;
 }
 
@@ -391,7 +491,8 @@ async function checkPluginVersion() {
 
         const remote = await getRemoteVersion();
         if (!remote || !remote.version) return;
-        if (remote.version === current) return;
+        // 只有远端严格更新才提醒：镜像滞后返回旧版本时不该弹窗
+        if (!isVersionNewer(remote.version, current)) return;
 
         shownGraphs.add(graph);
         showNotice(remote, current);

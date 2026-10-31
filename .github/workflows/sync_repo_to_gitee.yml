@@ -1,0 +1,33 @@
+name: Sync repo to Gitee
+
+# 把整个仓库镜像到 Gitee，供国内用户在 GitHub 不可达时安装：
+#   https://gitee.com/Wencx123/ComfyUI-Practical-Tools
+# 用的是已有的 GITEE_USER / GITEE_TOKEN 两个 secret。
+# 如果 Gitee 仓库名不是 ComfyUI-Practical-Tools，改下面的 REPO_NAME 即可。
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    env:
+      REPO_NAME: ComfyUI-Practical-Tools
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Push full history to Gitee
+        env:
+          GITEE_USER: ${{ secrets.GITEE_USER }}
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+        run: |
+          set -e
+          git config user.name "github-actions"
+          git config user.email "actions@users.noreply.github.com"
+          git remote add gitee "https://${GITEE_USER}:${GITEE_TOKEN}@gitee.com/${GITEE_USER}/${REPO_NAME}.git"
+          git push --force gitee "HEAD:master"
+          echo "已镜像到 https://gitee.com/${GITEE_USER}/${REPO_NAME}"

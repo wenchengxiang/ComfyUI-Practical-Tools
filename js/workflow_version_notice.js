@@ -21,18 +21,87 @@ function getLatestVersion() {
 }
 
 const REMOTE_CACHE_KEY = "PracticalTools.WorkflowVersionRemote";
+const REMOTE_TTL_OK = 60 * 60 * 1000;   // 成功结果缓存 1 小时
+const REMOTE_TTL_FAIL = 10 * 60 * 1000; // 失败后 10 分钟内不再重试
+const REMOTE_HEDGE_MS = 4000;           // 主链接先等 4 秒，再让镜像补位
 const REMOTE_CONFIG_URL = "https://raw.githubusercontent.com/wenchengxiang/ComfyUI-Practical-Tools/main/js/workflow_version_notice_config.js";
 const REMOTE_CONFIG_MIRRORS = [
     "https://cdn.jsdelivr.net/gh/wenchengxiang/ComfyUI-Practical-Tools@main/js/workflow_version_notice_config.js",
-    "https://raw.gitmirror.com/wenchengxiang/ComfyUI-Practical-Tools/main/js/workflow_version_notice_config.js"
+    "https://fastly.jsdelivr.net/gh/wenchengxiang/ComfyUI-Practical-Tools@main/js/workflow_version_notice_config.js",
+    "https://gcore.jsdelivr.net/gh/wenchengxiang/ComfyUI-Practical-Tools@main/js/workflow_version_notice_config.js"
 ];
 
-function fetchWithTimeout(url, options, timeoutMs) {
+function fetchWithTimeout(url, options, timeoutMs, outerSignal) {
     if (typeof AbortController !== "function") return fetch(url, options);
     const controller = new AbortController();
     const timer = setTimeout(function () { controller.abort(); }, timeoutMs || 8000);
+    if (outerSignal) {
+        if (outerSignal.aborted) controller.abort();
+        else outerSignal.addEventListener("abort", function () { controller.abort(); }, { once: true });
+    }
     return fetch(url, Object.assign({}, options, { signal: controller.signal }))
         .finally(function () { clearTimeout(timer); });
+}
+// 先请求主链接；hedgeMs 内没拿到内容，再让镜像一起补上。
+// 主链接先回就用主链接 —— 镜像的定时器会被清掉，不会白发请求。
+// 镜像迟迟不回也不拖累主链接，最坏 = hedgeMs + timeout。
+function fetchHedged(urls, options, timeoutMs, hedgeMs, decode) {
+    return new Promise(function (resolve, reject) {
+        var settled = false;
+        var pending = 0;
+        var launched = 0;
+        var timers = [];
+        // 谁先赢就掐掉其余还在飞的请求，慢镜像不再白跑
+        var group = (typeof AbortController === "function") ? new AbortController() : null;
+
+        function finish(value) {
+            if (settled) return;
+            settled = true;
+            for (var i = 0; i < timers.length; i++) clearTimeout(timers[i]);
+            if (group) { try { group.abort(); } catch (e) { /* ignore */ } }
+            if (value) resolve(value);
+            else reject(new Error("all failed"));
+        }
+
+        function launch(url) {
+            if (settled) return;
+            launched++;
+            pending++;
+            fetchWithTimeout(url, options, timeoutMs, group ? group.signal : null).then(function (response) {
+                if (!response.ok) return "";
+                return decode ? decode(response) : response.text();
+            }).then(function (text) {
+                pending--;
+                if (text) { finish(text); return; }
+                if (!pending && launched >= urls.length) finish("");
+            }, function () {
+                pending--;
+                if (!pending && launched >= urls.length) finish("");
+            });
+        }
+
+        if (!urls.length) { finish(""); return; }
+        launch(urls[0]);
+        for (var i = 1; i < urls.length; i++) {
+            (function (url) {
+                timers.push(setTimeout(function () { launch(url); }, hedgeMs));
+            })(urls[i]);
+        }
+    });
+}
+
+function readRemoteCache() {
+    try {
+        return JSON.parse(localStorage.getItem(REMOTE_CACHE_KEY) || "null");
+    } catch (e) {
+        return null;
+    }
+}
+
+function writeRemoteCache(value) {
+    try {
+        localStorage.setItem(REMOTE_CACHE_KEY, JSON.stringify(value));
+    } catch (e) { /* ignore */ }
 }
 
 function decodeBase64Utf8(value) {
@@ -70,53 +139,60 @@ async function fetchRemoteLatest() {
         .map(function (u) { return String(u || "").trim(); })
         .filter(function (u, i, arr) { return u && arr.indexOf(u) === i; });
 
-    try {
-        const cached = JSON.parse(localStorage.getItem(REMOTE_CACHE_KEY) || "null");
-        if (cached && cached.checkedAt && Date.now() - cached.checkedAt < 60 * 60 * 1000 && cached.text) {
-            return { text: cached.text, url: cached.url || "" };
-        }
-    } catch (e) { /* ignore */ }
-
-    let raw = "";
-    for (const url of urls) {
-        try {
-            const response = await fetchWithTimeout(url, {}, 8000);
-            if (response.ok) {
-                raw = await response.text();
-                if (raw) break;
-            }
-        } catch (e) { /* try next mirror */ }
+    const now = Date.now();
+    const cached = readRemoteCache();
+    if (cached && cached.text && cached.checkedAt && now - cached.checkedAt < REMOTE_TTL_OK) {
+        return { text: cached.text, url: cached.url || "" };
     }
+    // 上次失败后 10 分钟内不再发请求：断网时不会每次打开工作流都空等一轮
+    if (cached && cached.failedAt && now - cached.failedAt < REMOTE_TTL_FAIL) {
+        return null;
+    }
+
+    // 主链接先发，2 秒没回再让镜像补位
+    let raw = "";
+    try {
+        raw = await fetchHedged(urls, {}, 8000, REMOTE_HEDGE_MS);
+    } catch (e) { /* 全部失败，下面走 API 兜底 */ }
 
     // 镜像都失败时，再试 GitHub Contents API
     if (!raw) {
-        for (const url of urls) {
-            try {
-                const match = url.match(/raw\.githubusercontent\.com\/([^\/]+)\/([^\/]+)\/([^\/]+)\/(.+)$/);
-                if (!match) continue;
-                const api = "https://api.github.com/repos/" + match[1] + "/" + match[2] +
-                    "/contents/" + match[4] + "?ref=" + match[3];
-                const response = await fetchWithTimeout(api, {
-                    headers: { Accept: "application/vnd.github+json" }
-                }, 8000);
-                if (response.ok) {
-                    const data = await response.json();
-                    raw = decodeBase64Utf8(data.content || "");
-                    if (raw) break;
-                }
-            } catch (e) { /* ignore */ }
-        }
+        const apiUrls = urls.map(function (url) {
+            const match = url.match(/raw\.githubusercontent\.com\/([^\/]+)\/([^\/]+)\/([^\/]+)\/(.+)$/);
+            if (!match) return null;
+            return "https://api.github.com/repos/" + match[1] + "/" + match[2] +
+                "/contents/" + match[4] + "?ref=" + match[3];
+        }).filter(function (u) { return !!u; });
+
+        try {
+            raw = await fetchHedged(apiUrls, {
+                headers: { Accept: "application/vnd.github+json" }
+            }, 8000, REMOTE_HEDGE_MS, function (response) {
+                return response.json().then(function (data) {
+                    return decodeBase64Utf8(data.content || "");
+                });
+            });
+        } catch (e) { /* ignore */ }
     }
 
     const remote = parseRemoteConfig(raw);
-    if (!remote || !remote.text) return null;
-    try {
-        localStorage.setItem(REMOTE_CACHE_KEY, JSON.stringify({
-            text: remote.text,
-            url: remote.url,
-            checkedAt: Date.now()
-        }));
-    } catch (e) { /* ignore */ }
+    if (!remote || !remote.text) {
+        // 记住失败时间，10 分钟内不再重试；已经成功过的旧文本保留着
+        writeRemoteCache({
+            text: (cached && cached.text) || "",
+            url: (cached && cached.url) || "",
+            checkedAt: (cached && cached.checkedAt) || 0,
+            failedAt: Date.now()
+        });
+        return null;
+    }
+
+    // 缓存只增不减：镜像滞后时不要把已记下的新版本覆盖成旧版本
+    const incoming = normalizeLatestVersion(remote.text);
+    const previous = cached && cached.text ? normalizeLatestVersion(cached.text) : "";
+    if (!previous || !incoming || !isVersionNewer(previous, incoming)) {
+        writeRemoteCache({ text: remote.text, url: remote.url, checkedAt: Date.now() });
+    }
     return remote;
 }
 
@@ -375,9 +451,11 @@ async function checkWorkflowVersion() {
         const expected = normalizeLatestVersion(latest.text);
         if (!expected) return;
 
+        // 只有远端严格更新才算过期。镜像同步滞后时会返回更旧的版本号，
+        // 用"不相等"判断会让用户每次打开工作流都收到假提醒。
         const outdated = nodes.some(function (n) {
             const local = normalizeVersion(versionNodeText(n));
-            return local && local !== expected;
+            return local && isVersionNewer(expected, local);
         });
         if (!outdated) return;
 
