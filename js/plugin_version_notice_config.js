@@ -9,6 +9,6 @@
 
 window.PT_PLUGIN_UPDATE_CONFIG = {
     // 提醒正文；代码会从“最新版本:”这一行提取版本用于比较
-    text: "插件名称：ComfyUI-Practical-Tools\n最新版本: v2.0.24\n更新概述：修复已知错误，提高稳定性。",
+    text: "插件名称：ComfyUI-Practical-Tools\n最新版本：v2.0.24\n更新概述：修复已知错误，提高稳定性。",
     url: "https://github.com/wenchengxiang/ComfyUI-Practical-Tools"
 };
