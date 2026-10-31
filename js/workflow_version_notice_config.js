@@ -17,6 +17,6 @@
 // =====================================================================
 
 window.PT_WORKFLOW_VERSION_CONFIG = {
-    text: "工作流名：UniWorkflow\n最新版本：v0.020\n更新概述：修复已知错误，提高稳定性。",
+    text: "工作流名：UniWorkflow\n最新版本：v0.021\n更新概述：修复已知错误，提高稳定性。",
     url: "https://example.com/workflow-download"
 };
