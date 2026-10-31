@@ -1,0 +1,44 @@
+name: Sync config to Gitee
+
+# 把两个配置文件同步到 Gitee 的独立仓库，作为国内可达的镜像源。
+# 需要先在 GitHub 仓库设置三个 secret：GITEE_USER / GITEE_REPO / GITEE_TOKEN
+# （可选 GITEE_BRANCH，默认 master —— Gitee 的分支模型都以 master 为默认分支）
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "js/workflow_version_notice_config.js"
+      - "js/plugin_version_notice_config.js"
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build config-only tree
+        run: |
+          mkdir -p out/js
+          cp js/workflow_version_notice_config.js out/js/
+          cp js/plugin_version_notice_config.js out/js/
+
+      - name: Push to Gitee
+        env:
+          GITEE_USER: ${{ secrets.GITEE_USER }}
+          GITEE_REPO: ${{ secrets.GITEE_REPO }}
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+          GITEE_BRANCH: ${{ secrets.GITEE_BRANCH }}
+        run: |
+          set -e
+          BRANCH="${GITEE_BRANCH:-master}"
+          cd out
+          git init -q -b "$BRANCH"
+          git config user.name "github-actions"
+          git config user.email "actions@users.noreply.github.com"
+          git add .
+          git commit -q -m "sync $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          git remote add origin "https://${GITEE_USER}:${GITEE_TOKEN}@gitee.com/${GITEE_USER}/${GITEE_REPO}.git"
+          git push -f origin "HEAD:${BRANCH}"
+          echo "已同步到 https://gitee.com/${GITEE_USER}/${GITEE_REPO}/raw/${BRANCH}/js/workflow_version_notice_config.js"
