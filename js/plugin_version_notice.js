@@ -121,7 +121,6 @@ ApplyPluginVersionNotice.category = "Practical-Tools/FunctionSwitchNode";
 let initialPageLoad = true;
 let newOpenIntent = false;
 let newOpenIntentTimer = 0;
-const shownGraphs = new WeakSet();
 
 function markNewOpenIntent() {
     newOpenIntent = true;
@@ -310,27 +309,6 @@ function showNotice(remote, currentVersion) {
     try { alert(title + "\n\n" + message); } catch (e) { /* ignore */ }
 }
 
-function parseVersion(value) {
-    return String(value == null ? "" : value)
-        .replace(/^v/i, "")
-        .split("-")[0]
-        .split(".")
-        .map(function (part) { return parseInt(part, 10) || 0; });
-}
-
-function isNewer(latest, current) {
-    const a = parseVersion(latest);
-    const b = parseVersion(current);
-    const len = Math.max(a.length, b.length);
-    for (let i = 0; i < len; i++) {
-        const x = a[i] || 0;
-        const y = b[i] || 0;
-        if (x > y) return true;
-        if (x < y) return false;
-    }
-    return false;
-}
-
 function unescapeJsString(value) {
     return String(value)
         .replace(/\\n/g, "\n")
@@ -479,7 +457,6 @@ async function checkPluginVersion() {
     try {
         const graph = app.graph;
         if (!graph || !Array.isArray(graph._nodes)) return;
-        if (shownGraphs.has(graph)) return;
 
         const current = getCurrentPluginVersion();
         if (!current) return;
@@ -494,7 +471,6 @@ async function checkPluginVersion() {
         // 只有远端严格更新才提醒：镜像滞后返回旧版本时不该弹窗
         if (!isVersionNewer(remote.version, current)) return;
 
-        shownGraphs.add(graph);
         showNotice(remote, current);
     } catch (e) { /* ignore */ }
 }

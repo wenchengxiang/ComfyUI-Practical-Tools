@@ -378,8 +378,8 @@ class WorkflowVersionNode extends LGraphNode {
 WorkflowVersionNode.title = NODE_TITLE;
 WorkflowVersionNode.category = "Practical-Tools/FunctionSwitchNode";
 
-// 只有“从侧边栏打开”或“打开本地 JSON”才算新打开；
-// 切换标签、刷新页面都不提醒。
+// 只有“从侧边栏打开”或“打开本地 JSON”才算新打开，切换标签不提醒。
+// 刷新页面等同于首次加载，会提醒。
 let newOpenIntent = false;
 let newOpenIntentTimer = 0;
 let initialPageLoad = true;
