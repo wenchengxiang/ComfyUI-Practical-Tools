@@ -1,0 +1,520 @@
+// file_combo_tree.js —— 文件型下拉的文件夹树形选择（v3）
+//
+// 目标：加载类节点的 combo 里，选项是 "子目录/文件名" 时，用可折叠的树代替扁平列表。
+//
+// 与"豆包版"的关键差异：
+//   1) 树挂在 popper 包装层，不塞进 reka 的列表容器（reka 重渲染不会冲掉它）
+//   2) 选中优先「点击原始 item」，让 reka 自己完成选中+关闭+状态同步
+//   3) widget 定位「索引优先」：第 N 个 combobox 对应节点里第 N 个 combo widget，
+//      不依赖标签文字/当前值；索引不可用时才退回标签+值匹配，再退回首项值全图匹配
+//   4) 原生内容只在树渲染成功后隐藏，任何提前返回都不隐藏
+//
+// 开关：设置项 Practical-Tools.FileComboTree（默认开）
+
+import { app } from "../../scripts/app.js";
+
+const SETTING_ID = "Practical-Tools.FileComboTree";
+const OVERLAY_CLASS = "pt-fct-overlay";
+const SEP_RE = /[\\/]/;
+const DEBUG = true;   // 临时诊断：打完日志后改回 false
+
+let lastClicked = { nodeId: null, comboIndex: -1, label: "", text: "" };
+let overlayEl = null;
+let currentPopper = null;
+let transformTimer = 0;
+let popperObserver = null;
+
+function hideNative(popper, overlay) {
+  if (!popper || !overlay) return;
+  for (const child of popper.children) {
+    if (child === overlay) continue;
+    if (child.style.visibility !== "hidden") child.style.visibility = "hidden";
+  }
+}
+
+const log = (...args) => { if (DEBUG) console.warn("[PT-fct]", ...args); };
+
+function enabled() {
+  try {
+    const v = app.ui.settings.getSettingValue(SETTING_ID);
+    return v === undefined ? true : !!v;
+  } catch (e) {
+    return true;
+  }
+}
+
+/* ---------------- 点击时记录目标 ---------------- */
+function recordClick(ev) {
+  try {
+    const cb = ev.target.closest && ev.target.closest('[role="combobox"]');
+    if (!cb) return;
+    const nodeEl = cb.closest("[node-id]");
+    let comboIndex = -1;
+    if (nodeEl) {
+      const combos = [...nodeEl.querySelectorAll('[role="combobox"]')];
+      comboIndex = combos.indexOf(cb);
+    }
+    lastClicked = {
+      nodeId: nodeEl ? nodeEl.getAttribute("node-id") : null,
+      comboIndex,
+      label: cb.getAttribute("aria-label") || "",
+      text: (cb.textContent || "").trim(),
+    };
+    log("recordClick", lastClicked);
+  } catch (e) { /* ignore */ }
+}
+
+/* ---------------- 找 widget ---------------- */
+function allNodes() {
+  const out = [];
+  const push = (g) => {
+    if (!g || !g._nodes) return;
+    for (const n of g._nodes) {
+      out.push(n);
+      if (n.subgraph) push(n.subgraph);
+    }
+  };
+  try {
+    push(app.graph);
+    if (app.canvas && app.canvas.graph && app.canvas.graph !== app.graph) push(app.canvas.graph);
+  } catch (e) { /* ignore */ }
+  return out;
+}
+
+function nodeByIdAnywhere(id) {
+  if (!id) return null;
+  const key = String(id);
+  for (const n of allNodes()) {
+    if (n && String(n.id) === key) return n;
+  }
+  return null;
+}
+
+function widgetValues(w) {
+  try {
+    if (!w) return null;
+    let v = null;
+    if (w.inputSpec && Array.isArray(w.inputSpec.options)) v = w.inputSpec.options;
+    if (!v && w.options && Array.isArray(w.options.values)) v = w.options.values;
+    if (!v && Array.isArray(w.values)) v = w.values;
+    if (!v || !v.length) return null;
+    for (const x of v) if (typeof x !== "string") return null;
+    return v;
+  } catch (e) {
+    return null;
+  }
+}
+
+function comboWidgetsOf(node) {
+  const out = [];
+  for (const w of (node && node.widgets) || []) {
+    if (widgetValues(w)) out.push(w);
+  }
+  return out;
+}
+
+function findWidgetBySample(sample) {
+  if (!sample) return null;
+  for (const n of allNodes()) {
+    if (!n || !n.widgets) continue;
+    for (const w of n.widgets) {
+      const vals = widgetValues(w);
+      if (vals && vals.indexOf(sample) > -1) return { node: n, widget: w, values: vals };
+    }
+  }
+  return null;
+}
+
+function findTargetWidget(sample) {
+  const node = nodeByIdAnywhere(lastClicked.nodeId);
+
+  // 1) 索引优先：第 N 个 combobox <-> 节点里第 N 个 combo widget
+  if (node && lastClicked.comboIndex >= 0) {
+    const combos = comboWidgetsOf(node);
+    const w = combos[lastClicked.comboIndex];
+    if (w) {
+      const vals = widgetValues(w);
+      if (vals) return { node, widget: w, values: vals };
+    }
+  }
+
+  // 2) 标签 + 当前值
+  if (node && node.widgets) {
+    for (const w of node.widgets) {
+      const vals = widgetValues(w);
+      if (!vals) continue;
+      const nameHit = lastClicked.label && w.name &&
+        (w.name === lastClicked.label ||
+          lastClicked.label.indexOf(w.name) > -1 ||
+          w.name.indexOf(lastClicked.label) > -1);
+      const valueHit = !lastClicked.text ||
+        w.value === lastClicked.text ||
+        vals.indexOf(lastClicked.text) > -1;
+      if (nameHit && valueHit) return { node, widget: w, values: vals };
+    }
+  }
+
+  // 3) 首项值全图匹配
+  return findWidgetBySample(sample);
+}
+
+function isMediaLoader(node) {
+  try {
+    if (!node) return false;
+    const t = node.type || "";
+    if (/LoadImage|LoadAudio|LoadVideo|Load3D|LoadImageMask|ImageLoad|AudioLoad|VideoLoad/i.test(t)) return true;
+    for (const w of node.widgets || []) {
+      if (w.type === "button" && /upload/i.test(w.name || "")) return true;
+      if (/audioUI|imageUI|videoUI|image_preview|audio_preview|video_preview/i.test(w.type || "")) return true;
+    }
+  } catch (e) { /* ignore */ }
+  return false;
+}
+
+/* ---------------- 建树 ---------------- */
+function buildTree(values) {
+  const root = { name: "", children: new Map(), files: [] };
+  for (const raw of values) {
+    if (typeof raw !== "string" || !raw) continue;
+    if (!SEP_RE.test(raw)) {
+      root.files.push({ name: raw, path: raw });
+      continue;
+    }
+    const parts = raw.split(SEP_RE).filter(Boolean);
+    if (!parts.length) continue;
+    let cur = root;
+    for (let i = 0; i < parts.length - 1; i++) {
+      const key = parts[i];
+      let next = cur.children.get(key);
+      if (!next) {
+        next = { name: key, children: new Map(), files: [] };
+        cur.children.set(key, next);
+      }
+      cur = next;
+    }
+    cur.files.push({ name: parts[parts.length - 1], path: raw });
+  }
+  return root;
+}
+
+function sortNames(a, b) {
+  const an = a.toLowerCase(), bn = b.toLowerCase();
+  const aA = /^[a-z0-9\u4e00-\u9fa5]/.test(an), bA = /^[a-z0-9\u4e00-\u9fa5]/.test(bn);
+  if (aA && !bA) return -1;
+  if (!aA && bA) return 1;
+  return an.localeCompare(bn);
+}
+
+/* ---------------- 选中 ---------------- */
+function clickOriginalItem(path) {
+  const popper = currentPopper;
+  if (popper) {
+    const items = popper.querySelectorAll("[textvalue]");
+    for (const it of items) {
+      if (it.getAttribute("textvalue") !== path) continue;
+      try {
+        // 让 reka 自己完成选中 + 关闭 + 状态同步
+        it.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, cancelable: true, pointerId: 1 }));
+        it.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+        it.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, cancelable: true, pointerId: 1 }));
+        it.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true }));
+        it.click();
+        log("clicked original item", path);
+        return true;
+      } catch (e) {
+        log("click original failed", e);
+      }
+    }
+  }
+  return false;
+}
+
+function setWidgetValue(info, path) {
+  try {
+    const { widget, node } = info || {};
+    if (!widget) return false;
+    widget.value = path;
+    if (typeof widget.callback === "function") {
+      widget.callback(path, widget, node, undefined, undefined);
+    }
+    if (node && typeof node.onWidgetChanged === "function") {
+      try { node.onWidgetChanged(widget.name, path, widget); } catch (e) { /* ignore */ }
+    }
+    if (node && typeof node.setDirtyCanvas === "function") node.setDirtyCanvas(true, true);
+    if (app.graph && typeof app.graph.setDirtyCanvas === "function") app.graph.setDirtyCanvas(true, true);
+    return true;
+  } catch (e) {
+    log("setWidgetValue failed", e);
+    return false;
+  }
+}
+
+/* ---------------- 面板 ---------------- */
+function removeOverlay() {
+  if (popperObserver) { try { popperObserver.disconnect(); } catch (e) {} popperObserver = null; }
+  if (overlayEl && overlayEl.parentElement) overlayEl.parentElement.removeChild(overlayEl);
+  overlayEl = null;
+  if (currentPopper) {
+    for (const child of currentPopper.children) {
+      if (child.classList && child.classList.contains(OVERLAY_CLASS)) continue;
+      child.style.visibility = "";
+    }
+  }
+  currentPopper = null;
+}
+
+function renderTree(container, root, depth, onPick) {
+  const folderNames = [...root.children.keys()].sort(sortNames);
+  for (const name of folderNames) {
+    const child = root.children.get(name);
+    const folder = document.createElement("div");
+    folder.className = "pt-fct-folder";
+    folder.style.paddingLeft = (8 + depth * 14) + "px";
+    const arrow = document.createElement("span");
+    arrow.className = "pt-fct-arrow";
+    arrow.textContent = "▶";
+    const icon = document.createElement("span");
+    icon.className = "pt-fct-icon";
+    icon.textContent = "📁";
+    folder.appendChild(arrow);
+    folder.appendChild(icon);
+    folder.appendChild(document.createTextNode(name));
+
+    const kids = document.createElement("div");
+    kids.className = "pt-fct-children";
+    let rendered = false;
+    folder.addEventListener("mousedown", (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      folder.classList.toggle("open");
+      kids.classList.toggle("open");
+      if (!rendered) { rendered = true; renderTree(kids, child, depth + 1, onPick); }
+    });
+    container.appendChild(folder);
+    container.appendChild(kids);
+  }
+
+  const files = root.files.slice().sort((a, b) => sortNames(a.name, b.name));
+  for (const f of files) {
+    const el = document.createElement("div");
+    el.className = "pt-fct-file";
+    el.style.paddingLeft = (26 + depth * 14) + "px";
+    el.textContent = f.name;
+    el.title = f.path;
+    el.addEventListener("mousedown", (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      onPick(f.path);
+    });
+    container.appendChild(el);
+  }
+}
+
+function collectFiles(root, out) {
+  for (const f of root.files) out.push(f);
+  for (const child of root.children.values()) collectFiles(child, out);
+  return out;
+}
+
+function ensureStyle() {
+  if (document.getElementById("pt-fct-style")) return;
+  const st = document.createElement("style");
+  st.id = "pt-fct-style";
+  st.textContent = `
+    .${OVERLAY_CLASS}{position:absolute;inset:0;display:flex;flex-direction:column;
+      background:#1d1e20;color:#e6e6e6;font-size:12px;line-height:1.6;z-index:5;overflow:hidden;
+      border-radius:8px}
+    .pt-fct-search{display:flex;align-items:center;padding:6px 8px;border-bottom:1px solid #3a3b40;flex:0 0 auto}
+    .pt-fct-search input{flex:1;background:#2a2b2f;border:1px solid #3f4046;border-radius:4px;
+      color:#e6e6e6;font-size:12px;padding:4px 6px;outline:none}
+    .pt-fct-body{flex:1 1 auto;overflow-y:auto;padding:4px}
+    .pt-fct-folder,.pt-fct-file{display:flex;align-items:center;gap:6px;padding:3px 8px;
+      border-radius:4px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;user-select:none}
+    .pt-fct-folder:hover,.pt-fct-file:hover{background:#ffffff14}
+    .pt-fct-arrow{display:inline-block;width:10px;font-size:9px;color:#8a8b90;transition:transform .12s}
+    .pt-fct-folder.open>.pt-fct-arrow{transform:rotate(90deg)}
+    .pt-fct-children{display:none}
+    .pt-fct-children.open{display:block}
+    .pt-fct-empty{padding:8px;color:#8a8b90}
+  `;
+  document.head.appendChild(st);
+}
+
+/* ---------------- 接管 popper ---------------- */
+function tryTransform(popper) {
+  if (!popper || !enabled()) { log("bail: disabled/no popper"); return; }
+  if (overlayEl && overlayEl.isConnected) {
+    if (currentPopper === popper) {
+      hideNative(popper, overlayEl);   // 同一 popper：只补隐藏，不重建
+      log("refresh only");
+      return;
+    }
+    // reka 重建了 popper：把面板搬过去，别丢掉
+    if (popper.isConnected) {
+      popper.appendChild(overlayEl);
+      currentPopper = popper;
+      hideNative(popper, overlayEl);
+      log("moved overlay to new popper");
+      return;
+    }
+  }
+  if (!popper.querySelector("[textvalue]")) { log("bail: no items"); return; }   // 不是标准 combo
+
+  const firstItem = popper.querySelector("[textvalue]");
+  const sample = firstItem ? (firstItem.getAttribute("textvalue") || "") : "";
+  const found = findTargetWidget(sample);
+  let values = found && found.values ? found.values.slice() : null;
+  if (!values) {
+    values = [...popper.querySelectorAll("[textvalue]")]
+      .map((it) => it.getAttribute("textvalue")).filter(Boolean);
+  }
+
+  if (!values || !values.length) { log("bail: no values"); return; }
+  if (!values.some((v) => SEP_RE.test(v))) { log("bail: no separator", values.slice(0, 3)); return; }
+  if (found && isMediaLoader(found.node)) { log("bail: media loader"); return; }
+
+  removeOverlay();
+  ensureStyle();
+
+  const root = buildTree(values);
+  if (root.children.size === 0) return;                // 只有顶层文件，没意义
+
+  const overlay = document.createElement("div");
+  overlay.className = OVERLAY_CLASS;
+
+  const search = document.createElement("div");
+  search.className = "pt-fct-search";
+  const input = document.createElement("input");
+  input.placeholder = "搜索文件名或路径…";
+  search.appendChild(input);
+
+  const body = document.createElement("div");
+  body.className = "pt-fct-body";
+
+  const pick = (path) => {
+    const ok = clickOriginalItem(path);
+    if (!ok) setWidgetValue(found, path);
+    removeOverlay();
+  };
+
+  const renderAll = (term) => {
+    body.innerHTML = "";
+    if (!term) {
+      renderTree(body, root, 0, pick);
+      return;
+    }
+    const files = collectFiles(root, []).filter((f) => f.path.toLowerCase().includes(term));
+    files.sort((a, b) => sortNames(a.name, b.name));
+    if (!files.length) {
+      const empty = document.createElement("div");
+      empty.className = "pt-fct-empty";
+      empty.textContent = "无匹配结果";
+      body.appendChild(empty);
+      return;
+    }
+    for (const f of files) {
+      const el = document.createElement("div");
+      el.className = "pt-fct-file";
+      el.textContent = f.path;
+      el.title = f.path;
+      el.addEventListener("mousedown", (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        pick(f.path);
+      });
+      body.appendChild(el);
+    }
+  };
+
+  let searchTimer = 0;
+  input.addEventListener("input", () => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => renderAll(input.value.trim().toLowerCase()), 120);
+  });
+  input.addEventListener("mousedown", (ev) => ev.stopPropagation());
+
+  overlay.appendChild(search);
+  overlay.appendChild(body);
+  renderAll("");
+
+  // 树放到 popper 包装层（与原生内容同级），reka 重渲染列表也冲不掉
+  popper.appendChild(overlay);
+  for (const child of popper.children) {
+    if (child !== overlay) child.style.visibility = "hidden";
+  }
+  overlayEl = overlay;
+  currentPopper = popper;
+  // reka 之后可能再插入内容，盯着 popper 保持原生内容隐藏
+  popperObserver = new MutationObserver(() => hideNative(popper, overlay));
+  popperObserver.observe(popper, { childList: true });
+
+  // 不自动聚焦：reka 把"焦点离开选择区"当成关闭信号
+  log("overlay mounted", values.length);
+}
+
+function scheduleTransform(popper) {
+  clearTimeout(transformTimer);
+  transformTimer = setTimeout(() => {
+    try { tryTransform(popper); } catch (e) { log("transform error", e); }
+  }, 120);
+}
+
+/* ---------------- 监听 ---------------- */
+function guardFocus(ev) {
+  if (!overlayEl) return;
+  const tgt = ev.target;
+  const rel = ev.relatedTarget;
+  if ((tgt && overlayEl.contains(tgt)) || (rel && overlayEl.contains(rel))) {
+    ev.stopPropagation();
+  }
+}
+window.addEventListener("focusin", guardFocus, true);
+window.addEventListener("focusout", guardFocus, true);
+
+window.addEventListener("pointerdown", (ev) => {
+  recordClick(ev);
+  if (overlayEl && overlayEl.contains(ev.target)) ev.stopPropagation();
+}, true);
+
+const observer = new MutationObserver((records) => {
+  try {
+    for (const r of records) {
+      for (const node of r.addedNodes) {
+        if (!(node instanceof HTMLElement)) continue;
+        const popper = node.matches("[data-reka-popper-content-wrapper]")
+          ? node
+          : node.querySelector("[data-reka-popper-content-wrapper]");
+        if (popper) scheduleTransform(popper);
+      }
+      for (const node of r.removedNodes) {
+        if (!(node instanceof HTMLElement)) continue;
+        if (overlayEl && node.contains(overlayEl)) removeOverlay();
+      }
+    }
+  } catch (e) { /* ignore */ }
+});
+
+observer.observe(document.body, { childList: true, subtree: true });
+
+document.addEventListener("keydown", (ev) => {
+  if (ev.key === "Escape" && overlayEl) removeOverlay();
+}, true);
+
+app.registerExtension({
+  name: "Practical-Tools.FileComboTree",
+  async setup() {
+    try {
+      app.ui.settings.addSetting({
+        id: SETTING_ID,
+        name: "文件下拉按文件夹分组",
+        type: "boolean",
+        defaultValue: true,
+        tooltip: "加载类节点的文件名下拉里，选项含子目录时用可折叠的文件树显示",
+        onChange: () => removeOverlay(),
+      });
+    } catch (e) {
+      console.warn("[Practical-Tools] 注册设置失败:", e);
+    }
+    log("loaded");
+  },
+});

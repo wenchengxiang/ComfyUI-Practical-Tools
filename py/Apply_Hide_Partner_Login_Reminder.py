@@ -8,7 +8,9 @@ class wcx_Apply_Hide_Partner_Login_Reminder:
     @classmethod
     def INPUT_TYPES(s):
         return {
-            "required": {},
+            "required": {
+                "开关": ("BOOLEAN", {"default": True, "label_on": "启用", "label_off": "禁用", "tooltip": "关闭后本节点功能不生效（等价于没有这个节点）"}),
+            },
         }
 
     RETURN_TYPES = ()
@@ -16,7 +18,7 @@ class wcx_Apply_Hide_Partner_Login_Reminder:
     CATEGORY = "Practical-Tools/FunctionSwitchNode"
     OUTPUT_NODE = True
 
-    def do_nothing(self):
+    def do_nothing(self, 开关=True):
         return {}
 
 

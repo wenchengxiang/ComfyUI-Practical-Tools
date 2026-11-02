@@ -338,7 +338,7 @@ Files:
 
 ```text
 js/dark_better_theme.js
-js/themes/dark-better.json
+js/dark-better.json
 ```
 
 ---

@@ -1,7 +1,8 @@
-// mem_guard.js — 前端内存累积监测 + 画布工具栏常驻刷新按钮
+// frontend_refresh_button.js — 画布工具栏的常驻刷新按钮（附带前端内存/元素数超阈值变红提示）
 // 说明：ComfyUI 页面开久了，JS 堆与 DOM 会持续增长；后端卸载模型不会回收这块内存。
 //      在右下角「画布工具栏」里常驻一个刷新按钮：
 //        - 正常：与其它按钮同色（白），悬停提示「刷新画布」
+//        - 达到阈值 3/4：图标变黄，悬停提示「前端内存接近上限…」（文字同为黄色）
 //        - 超过阈值：图标变红，悬停提示「前端内存积重，刷新画布清理」（文字同红色）
 //      悬浮提示复用官方 tooltip 的样式（深色框、6px 圆角、12px 文字、底部小箭头）
 //      箭头按按钮中心定位，气泡被视口边缘夹住时也能指向图标
@@ -23,13 +24,16 @@
 	const TIP_NORMAL = "刷新画布";
 	const TIP_WARN = "前端内存积重，刷新画布清理";
 	const WARN_COLOR = "#ff6b6b";
+const NEAR_COLOR = "#e8b84b"; // 接近上限（3/4）时的黄色
+const NEAR_RATIO = 0.75;
+const TIP_NEAR = "前端内存积累，刷新画布清理";
 	const TIP_DELAY_MS = 420; /* 官方 300ms + 实测官方 Vue 挂载开销约 120ms */
 	const TIP_SKIP_MS = 300; /* 官方 skipDelayDuration：窗口内再次悬停直接开 */
 
 	let baselineMB = 0;
 	let peakMB = 0;
 	let peakDom = 0;
-	let warn = false;
+	let level = 0; // 0=正常 1=接近(黄) 2=超限(红)
 	let checkTimer = null;
 	let attachTimer = null;
 
@@ -94,7 +98,11 @@
 	let tipShowTimer = null;
 
 	function tipText() {
-		return warn ? TIP_WARN : TIP_NORMAL;
+		return level === 2 ? TIP_WARN : (level === 1 ? TIP_NEAR : TIP_NORMAL);
+	}
+
+	function levelColor() {
+		return level === 2 ? WARN_COLOR : (level === 1 ? NEAR_COLOR : "");
 	}
 
 	function ensureTip() {
@@ -168,7 +176,7 @@
 		if (!document.getElementById(BTN_ID)) return;
 		ensureTip();
 		tipLabel.textContent = tipText();
-		tipBox.style.color = warn ? WARN_COLOR : "";
+		tipBox.style.color = levelColor();
 		tipWrap.style.display = "block";
 		positionTip();
 	}
@@ -196,15 +204,15 @@
 		if (!btn) return;
 		btn.removeAttribute("title");
 		if (warn) {
-			btn.style.color = WARN_COLOR;
-			btn.setAttribute("aria-label", TIP_WARN);
+			btn.style.color = levelColor();
+			btn.setAttribute("aria-label", tipText());
 		} else {
-			btn.style.color = "";
-			btn.setAttribute("aria-label", TIP_NORMAL);
+			btn.style.color = levelColor();
+			btn.setAttribute("aria-label", tipText());
 		}
 		if (tipWrap && tipWrap.style.display === "block") {
 			tipLabel.textContent = tipText();
-			tipBox.style.color = warn ? WARN_COLOR : "";
+			tipBox.style.color = levelColor();
 			positionTip();
 		}
 	}
@@ -288,9 +296,12 @@
 		const limitMB = Number(getSetting(SET_MB, 1200)) || 1200;
 		const limitDom = Number(getSetting(SET_DOM, 60000)) || 60000;
 
-		warn = (mb != null && mb >= limitMB) || (mb == null && dom >= limitDom);
+		const ratio = mb != null
+			? (limitMB > 0 ? mb / limitMB : 0)
+			: (limitDom > 0 ? dom / limitDom : 0);
+		level = ratio >= 1 ? 2 : (ratio >= NEAR_RATIO ? 1 : 0);
 		applyState();
-		return { heapMB: mb, baselineMB: baselineMB, peakMB: peakMB, dom: dom, peakDom: peakDom, warn: warn };
+		return { heapMB: mb, baselineMB: baselineMB, peakMB: peakMB, dom: dom, peakDom: peakDom, level: level, warn: level === 2 };
 	}
 
 	function start() {
@@ -323,7 +334,7 @@
 		check: check,
 		attach: keepAttached,
 		forceWarn: function (on) {
-			warn = !!on;
+			level = on ? 2 : 0;
 			applyState();
 		},
 		stats: function () {

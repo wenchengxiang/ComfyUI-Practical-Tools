@@ -204,35 +204,12 @@ app.registerExtension({
         }
 
         // ------------------------------------------------------------
-        // Photopea Logo
+        // 样式表
         // ------------------------------------------------------------
-
-        const baseUrl = new URL(".", import.meta.url).href;
-        const logoUrl = `${baseUrl}photopea_logo.svg`;
 
         const style = document.createElement("style");
 
         style.textContent = `
-            .pi-photopea-logo {
-                mask-image: url('${logoUrl}');
-                -webkit-mask-image: url('${logoUrl}');
-                mask-size: contain;
-                -webkit-mask-size: contain;
-                mask-repeat: no-repeat;
-                -webkit-mask-repeat: no-repeat;
-                mask-position: center;
-                -webkit-mask-position: center;
-                background-color: currentColor;
-                width: 1.2rem;
-                height: 1.2rem;
-                display: inline-block;
-                vertical-align: middle;
-            }
-
-            .pi-photopea-logo::before {
-                content: "" !important;
-            }
-
             .practical-tools-photopea-toolbar {
                 display: flex;
                 align-items: center;

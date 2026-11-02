@@ -147,11 +147,21 @@ function collectAllNodes(nodes, result, depth) {
 }
 
 // ===== 开关节点检测 =====
+function nodeSwitchOn(node) {
+    // 节点上的“启用”开关；旧工作流没有该 widget 时视为启用
+    try {
+        const w = (node.widgets || []).find(function (x) { return x && x.name === "开关"; });
+        if (w) return w.value !== false && w.value !== 0;
+        const raw = node.widgets_values;
+        if (Array.isArray(raw) && raw.length) return raw[0] !== false && raw[0] !== 0;
+    } catch (e) { /* ignore */ }
+    return true;
+}
 function isAutoFixEnabled() {
     if (!app.graph || !app.graph._nodes) return false;
     const allNodes = collectAllNodes(app.graph._nodes);
     for (const node of allNodes) {
-        if (node.type === SWITCH_NODE_TYPE) return true;
+        if (node.type === SWITCH_NODE_TYPE && nodeSwitchOn(node)) return true;
     }
     return false;
 }

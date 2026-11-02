@@ -18,7 +18,7 @@ import { app } from "../../scripts/app.js";
  *   - 激活主题存在 `Comfy.ColorPalette`
  *
  * 本扩展每次加载时自动做（幂等，不重复导入）：
- *   1. fetch 本地主题文件 ./themes/dark-better.json（no-store）
+ *   1. fetch 本地主题文件 ./dark-better.json（no-store）
  *   2. GET /settings 检查后端是否已有 "Dark (Better)"
  *      - 没有 → 导入
  *      - 有但 `_fileVersion` 与本地文件不同 → 覆盖导入（用于更新主题
@@ -33,7 +33,7 @@ import { app } from "../../scripts/app.js";
  * =====================================================================
  */
 
-const THEME_URL = new URL("./themes/dark-better.json", import.meta.url).href;
+const THEME_URL = new URL("./dark-better.json", import.meta.url).href;
 const THEME_ID = "Dark (Better)";
 const ACTIVATED_FLAG = "pt-theme-activated";
 

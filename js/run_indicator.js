@@ -2188,6 +2188,8 @@ function getAutoRoomConfig() {
             for (const k in inner) {
                 const n = inner[k];
                 if (!n || n.class_type !== "wcx_Apply_AutoWaitingRoom") continue;
+                const en = n.inputs && n.inputs["开关"];
+                if (en === false || en === 0 || en === "false") continue;
                 let secs = 2.0;
                 try {
                     const raw = n.inputs && (n.inputs["延迟秒数"] !== undefined ? n.inputs["延迟秒数"] : n.inputs["delay"]);
@@ -2207,6 +2209,7 @@ function getAutoRoomConfig() {
                 if (!n) continue;
                 if (n.type === "wcx_Apply_AutoWaitingRoom" || n.comfyClass === "wcx_Apply_AutoWaitingRoom") {
                     const wv = n.widgets_values;
+                    if (Array.isArray(wv) && wv.length && (wv[0] === false || wv[0] === 0 || wv[0] === "false")) continue;
                     const v = Number(Array.isArray(wv) ? wv[0] : wv);
                     found = Number.isFinite(v) ? Math.max(0, Math.min(60, v)) * 1000 : 2000;
                     return;

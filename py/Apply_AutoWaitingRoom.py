@@ -15,6 +15,7 @@ class wcx_Apply_AutoWaitingRoom:
     def INPUT_TYPES(cls):
         return {
             "required": {
+                "开关": ("BOOLEAN", {"default": True, "label_on": "启用", "label_off": "禁用", "tooltip": "关闭后本节点功能不生效（等价于没有这个节点）"}),
                 "延迟秒数": (
                     "FLOAT",
                     {
@@ -33,7 +34,7 @@ class wcx_Apply_AutoWaitingRoom:
     CATEGORY = "Practical-Tools/FunctionSwitchNode"
     OUTPUT_NODE = True
 
-    def do_nothing(self, 延迟秒数=2.0):
+    def do_nothing(self, 开关=True, 延迟秒数=2.0):
         return {}
 
 

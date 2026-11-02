@@ -19,7 +19,7 @@ const REMOTE_CONFIG_MIRRORS = [
     "https://gcore.jsdelivr.net/gh/wenchengxiang/ComfyUI-Practical-Tools@main/js/plugin_version_notice_config.js"
 ];
 const REMOTE_CACHE_KEY = "PracticalTools.PluginRemoteVersion";
-const REMOTE_TTL_OK = 60 * 60 * 1000;   // 成功结果缓存 1 小时
+const REMOTE_TTL_OK = 30 * 60 * 1000;   // 成功结果缓存 30 分钟
 const REMOTE_TTL_FAIL = 10 * 60 * 1000; // 失败后 10 分钟内不再重试
 const REMOTE_HEDGE_MS = 4000;           // 主链接先等 4 秒，再让镜像补位
 
@@ -99,25 +99,6 @@ function collectNodesDeep(graph, out, seen) {
     document.head.appendChild(style);
 })();
 
-class ApplyPluginVersionNotice extends LGraphNode {
-    constructor() {
-        super();
-        this.title = NODE_TITLE;
-        this.isVirtualNode = true;
-        this.serialize_widgets = true;
-        this.properties = this.properties || {};
-        this.size = this.size || [240, 30];
-        this.widgets = [];
-    }
-
-    onConfigure() {
-        // 纯标记节点，不需要配置
-    }
-}
-
-ApplyPluginVersionNotice.title = NODE_TITLE;
-ApplyPluginVersionNotice.category = "Practical-Tools/FunctionSwitchNode";
-
 let initialPageLoad = true;
 let newOpenIntent = false;
 let newOpenIntentTimer = 0;
@@ -172,100 +153,95 @@ function installNewOpenTracking() {
     }, true);
 }
 
-function relabelDialog(dialogKey) {
-    let tries = 0;
-    let renamed = 0;
-    const timer = setInterval(function () {
-        const root = document.querySelector('[data-dialog-key="' + dialogKey + '"]');
-        if (root) {
-            root.querySelectorAll("button").forEach(function (btn) {
-                if (!btn.offsetParent) return;
-                const text = (btn.textContent || "").trim();
-                const icon = btn.querySelector("i");
-
-                function setLabel(label, iconClass) {
-                    if (icon) icon.className = iconClass;
-                    let replaced = false;
-                    btn.childNodes.forEach(function (node) {
-                        if (node.nodeType === 3 && (node.textContent || "").trim() === text) {
-                            node.textContent = " " + label;
-                            replaced = true;
-                        }
-                    });
-                    if (!replaced) {
-                        if (icon) btn.appendChild(document.createTextNode(" " + label));
-                        else btn.textContent = label;
-                    }
-                }
-
-                if (text === "取消") {
-                    setLabel("忽略提醒", "pi pi-times");
-                    renamed++;
-                } else if (text === "确定" || text === "确认") {
-                    setLabel("更新插件", "pi pi-download");
-                    renamed++;
-                }
-            });
+function ensureIgnoreBtnStyle() {
+    if (document.getElementById("pt-ignore-btn-style")) return;
+    const st = document.createElement("style");
+    st.id = "pt-ignore-btn-style";
+    st.textContent = `
+        .pt-btn-ignore {
+            background-color: #b91c1c !important;
+            border-color: transparent !important;
+            color: #ffffff !important;
         }
-        if (renamed >= 2 || ++tries > 40) clearInterval(timer);
-    }, 50);
+        .pt-btn-ignore:hover {
+            background-color: #dc2626 !important;
+            border-color: transparent !important;
+        }
+        .pt-btn-ignore:focus,
+        .pt-btn-ignore:focus-visible {
+            outline: none !important;
+            box-shadow: none !important;
+        }
+        .pt-btn-ignore i,
+        .pt-btn-ignore span {
+            color: #ffffff !important;
+            background-color: transparent !important;
+        }
+        .pt-btn-flat:focus,
+        .pt-btn-flat:focus-visible {
+            outline: none !important;
+            box-shadow: none !important;
+        }
+    `;
+    document.head.appendChild(st);
 }
 
-async function openPluginManager() {
-    try {
-        const command = window.app && window.app.extensionManager &&
-            window.app.extensionManager.command;
-        if (!command || typeof command.execute !== "function") return false;
+function relabelDialog(dialogKey) {
+    // 用 MutationObserver 在弹窗插入的同一事件里改名+上色，避免先按原生样式画一次（闪烁）
+    const SEL = '[data-dialog-key="' + dialogKey + '"]';
+    let renamed = 0;
+    let done = false;
 
-        await command.execute("Comfy.OpenManagerDialog");
-
-        return await new Promise(function (resolve) {
-            let attempts = 0;
-
-            function fillSearch(root) {
-                let inputTries = 0;
-                function tryFill() {
-                    const input = root && root.querySelector("input");
-                    if (!input) {
-                        if (inputTries++ < 6) setTimeout(tryFill, 200);
-                        return;
-                    }
-                    try {
-                        const setter = Object.getOwnPropertyDescriptor(
-                            HTMLInputElement.prototype, "value"
-                        ).set;
-                        setter.call(input, "ComfyUI-Practical-Tools");
-                        input.dispatchEvent(new Event("input", { bubbles: true }));
-                        input.dispatchEvent(new Event("change", { bubbles: true }));
-                        input.focus();
-                    } catch (e) {}
-                }
-                tryFill();
-            }
-
-            function waitManager() {
-                const root = document.querySelector(".manager-dialog");
-                if (root) {
-                    fillSearch(root);
-                    resolve(true);
-                    return;
-                }
-                if (attempts++ > 10) {
-                    resolve(false);
-                    return;
-                }
-                setTimeout(waitManager, 300);
-            }
-
-            setTimeout(waitManager, 300);
-        });
-    } catch (e) {
-        return false;
+    function finish() {
+        done = true;
+        try { obs.disconnect(); } catch (e) { /* ignore */ }
+        clearTimeout(timer);
     }
+
+    function apply() {
+        if (done) return;
+        const root = document.querySelector(SEL);
+        if (!root) return;
+        root.querySelectorAll("button").forEach(function (btn) {
+            if (!btn.offsetParent) return;
+            const text = (btn.textContent || "").trim();
+            const icon = btn.querySelector("i");
+
+            function setLabel(label, iconClass) {
+                if (icon) icon.className = iconClass;
+                let replaced = false;
+                btn.childNodes.forEach(function (node) {
+                    if (node.nodeType === 3 && (node.textContent || "").trim() === text) {
+                        node.textContent = " " + label;
+                        replaced = true;
+                    }
+                });
+                if (!replaced) {
+                    if (icon) btn.appendChild(document.createTextNode(" " + label));
+                    else btn.textContent = label;
+                }
+            }
+
+            if (text === "取消") {
+                ensureIgnoreBtnStyle();
+                btn.classList.add("pt-btn-ignore");
+                setLabel("忽略提醒", "pi pi-times");
+                renamed++;
+            } else if (text === "确定" || text === "确认") {
+                ensureIgnoreBtnStyle();
+                btn.classList.add("pt-btn-flat");
+                setLabel("更新插件", "pi pi-download");
+                renamed++;
+            }
+        });
+        if (renamed >= 2) finish();
+    }
+
+    const obs = new MutationObserver(function () { apply(); });
+    obs.observe(document.body, { childList: true, subtree: true });
+    const timer = setTimeout(finish, 3000);
+    apply();
 }
-
-window.__ptOpenPluginManager = openPluginManager;
-
 function showNotice(remote, currentVersion) {
     const title = "工作流插件更新提醒";
     const message = String((remote && remote.text) ||
@@ -449,6 +425,17 @@ async function getRemoteVersion() {
     return remote;
 }
 
+function nodeSwitchOn(node) {
+    // 节点上的“启用”开关；旧工作流没有该 widget 时视为启用
+    try {
+        const w = (node.widgets || []).find(function (x) { return x && x.name === "开关"; });
+        if (w) return w.value !== false && w.value !== 0;
+        const raw = node.widgets_values;
+        if (Array.isArray(raw) && raw.length) return raw[0] !== false && raw[0] !== 0;
+    } catch (e) { /* ignore */ }
+    return true;
+}
+
 async function checkPluginVersion() {
     try {
         const graph = app.graph;
@@ -458,7 +445,7 @@ async function checkPluginVersion() {
         if (!current) return;
 
         const nodes = collectNodesDeep(graph).filter(function (n) {
-            return n && n.type === NODE_TYPE;
+            return n && n.type === NODE_TYPE && nodeSwitchOn(n);
         });
         if (nodes.length === 0) return;
 
@@ -474,16 +461,6 @@ async function checkPluginVersion() {
 app.registerExtension({
     name: "Practical-Tools.ApplyPluginVersionNotice",
 
-    beforeRegisterVueAppNodeDefs(defs) {
-        try {
-            for (const def of defs) {
-                if (def && def.name === NODE_TYPE) {
-                    def.display_name = NODE_TITLE;
-                }
-            }
-        } catch (e) { /* ignore */ }
-    },
-
     afterLoadGraph() {
         const isInitialLoad = initialPageLoad;
         initialPageLoad = false;
@@ -497,13 +474,4 @@ app.registerExtension({
         setTimeout(checkPluginVersion, 500);
     },
 
-    registerCustomNodes() {
-        LiteGraph.registerNodeType(NODE_TYPE, ApplyPluginVersionNotice);
-        ApplyPluginVersionNotice.category = "Practical-Tools/FunctionSwitchNode";
-        ApplyPluginVersionNotice.title = NODE_TITLE;
-    },
-
-    setup() {
-        installNewOpenTracking();
-    }
 });

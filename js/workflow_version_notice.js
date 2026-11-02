@@ -21,7 +21,7 @@ function getLatestVersion() {
 }
 
 const REMOTE_CACHE_KEY = "PracticalTools.WorkflowVersionRemote";
-const REMOTE_TTL_OK = 60 * 60 * 1000;   // 成功结果缓存 1 小时
+const REMOTE_TTL_OK = 30 * 60 * 1000;   // 成功结果缓存 30 分钟
 const REMOTE_TTL_FAIL = 10 * 60 * 1000; // 失败后 10 分钟内不再重试
 const REMOTE_HEDGE_MS = 4000;           // 主链接先等 4 秒，再让镜像补位
 const REMOTE_CONFIG_URL = "https://raw.githubusercontent.com/wenchengxiang/ComfyUI-Practical-Tools/main/js/workflow_version_notice_config.js";
@@ -224,58 +224,112 @@ function normalizeLatestVersion(value) {
     return match ? match[0].toLowerCase().replace(/^v/, "") : "";
 }
 
+function nodeSwitchOn(node) {
+    // 节点上的“启用”开关；旧工作流没有该 widget 时视为启用
+    try {
+        const w = (node.widgets || []).find(function (x) { return x && x.name === "开关"; });
+        if (w) return w.value !== false && w.value !== 0;
+        const raw = node.widgets_values;
+        if (Array.isArray(raw) && raw.length) return raw[0] !== false && raw[0] !== 0;
+    } catch (e) { /* ignore */ }
+    return true;
+}
+
 function versionNodeText(node) {
     if (!node) return "";
-    const widget = (node.widgets || []).find(function (w) {
-        return w && w.name === "text";
-    });
-    if (widget && widget.value != null) return String(widget.value);
-    return node.properties && node.properties.text != null
-        ? String(node.properties.text)
-        : "";
+    const w = (node.widgets || []).find(function (x) { return x && x.name === "当前版本"; });
+    return w && w.value != null ? String(w.value) : "";
+}
+
+function ensureIgnoreBtnStyle() {
+    if (document.getElementById("pt-ignore-btn-style")) return;
+    const st = document.createElement("style");
+    st.id = "pt-ignore-btn-style";
+    st.textContent = `
+        .pt-btn-ignore {
+            background-color: #b91c1c !important;
+            border-color: transparent !important;
+            color: #ffffff !important;
+        }
+        .pt-btn-ignore:hover {
+            background-color: #dc2626 !important;
+            border-color: transparent !important;
+        }
+        .pt-btn-ignore:focus,
+        .pt-btn-ignore:focus-visible {
+            outline: none !important;
+            box-shadow: none !important;
+        }
+        .pt-btn-ignore i,
+        .pt-btn-ignore span {
+            color: #ffffff !important;
+            background-color: transparent !important;
+        }
+        .pt-btn-flat:focus,
+        .pt-btn-flat:focus-visible {
+            outline: none !important;
+            box-shadow: none !important;
+        }
+    `;
+    document.head.appendChild(st);
 }
 
 function relabelVersionDialog(dialogKey) {
-    // 官方 default 确认框：左“取消” -> “忽略提醒”，右“确定” -> “获取新版”
-    let tries = 0;
+    // 用 MutationObserver 在弹窗插入的同一事件里改名+上色，避免先按原生样式画一次（闪烁）
+    const SEL = '[data-dialog-key="' + dialogKey + '"]';
     let renamed = 0;
-    const timer = setInterval(function () {
-        const root = document.querySelector('[data-dialog-key="' + dialogKey + '"]');
-        if (root) {
+    let done = false;
 
-            root.querySelectorAll("button").forEach(function (btn) {
-                if (!btn.offsetParent) return;
-                const text = (btn.textContent || "").trim();
-                const icon = btn.querySelector("i");
+    function finish() {
+        done = true;
+        try { obs.disconnect(); } catch (e) { /* ignore */ }
+        clearTimeout(timer);
+    }
 
-                function setLabel(label, iconClass) {
-                    if (icon) icon.className = iconClass;
-                    let replaced = false;
-                    btn.childNodes.forEach(function (node) {
-                        if (node.nodeType === 3 && (node.textContent || "").trim() === text) {
-                            node.textContent = " " + label;
-                            replaced = true;
-                        }
-                    });
-                    if (!replaced) {
-                        if (icon) btn.appendChild(document.createTextNode(" " + label));
-                        else btn.textContent = label;
+    function apply() {
+        if (done) return;
+        const root = document.querySelector(SEL);
+        if (!root) return;
+        root.querySelectorAll("button").forEach(function (btn) {
+            if (!btn.offsetParent) return;
+            const text = (btn.textContent || "").trim();
+            const icon = btn.querySelector("i");
+
+            function setLabel(label, iconClass) {
+                if (icon) icon.className = iconClass;
+                let replaced = false;
+                btn.childNodes.forEach(function (node) {
+                    if (node.nodeType === 3 && (node.textContent || "").trim() === text) {
+                        node.textContent = " " + label;
+                        replaced = true;
                     }
+                });
+                if (!replaced) {
+                    if (icon) btn.appendChild(document.createTextNode(" " + label));
+                    else btn.textContent = label;
                 }
+            }
 
-                if (text === "取消") {
-                    setLabel("忽略提醒", "pi pi-times");
-                    renamed++;
-                } else if (text === "确定" || text === "确认") {
-                    setLabel("获取新版", "pi pi-download");
-                    renamed++;
-                }
-            });
-        }
-        if (renamed >= 2 || ++tries > 40) clearInterval(timer);
-    }, 50);
+            if (text === "取消") {
+                ensureIgnoreBtnStyle();
+                btn.classList.add("pt-btn-ignore");
+                setLabel("忽略提醒", "pi pi-times");
+                renamed++;
+            } else if (text === "确定" || text === "确认") {
+                ensureIgnoreBtnStyle();
+                btn.classList.add("pt-btn-flat");
+                setLabel("获取新版", "pi pi-download");
+                renamed++;
+            }
+        });
+        if (renamed >= 2) finish();
+    }
+
+    const obs = new MutationObserver(function () { apply(); });
+    obs.observe(document.body, { childList: true, subtree: true });
+    const timer = setTimeout(finish, 3000);
+    apply();
 }
-
 function showVersionNotice(passedLatest) {
     const latest = passedLatest || getLatestVersion();
     const message = latest.text || "";
@@ -309,69 +363,6 @@ function showVersionNotice(passedLatest) {
     } catch (e) { /* ignore */ }
     try { alert("工作流更新提醒\n\n" + message); } catch (e) { /* ignore */ }
 }
-
-class WorkflowVersionNode extends LGraphNode {
-    constructor() {
-        super();
-        this.title = NODE_TITLE;
-        this.isVirtualNode = true;
-        this.serialize_widgets = true;
-        this.properties = this.properties || {};
-        this.size = this.size || [260, 120];
-
-        if (this.properties.text === undefined) {
-            this.properties.text = "";
-        }
-
-        this.widgets = [];
-        const creator = window.comfyAPI &&
-            window.comfyAPI.widgets &&
-            window.comfyAPI.widgets.ComfyWidgets &&
-            window.comfyAPI.widgets.ComfyWidgets.STRING;
-
-        if (typeof creator === "function") {
-            const result = creator(this, "text", ["STRING", {
-                default: this.properties.text || "",
-                multiline: true
-            }], app);
-            const widget = result && result.widget;
-            if (widget) {
-                widget.value = this.properties.text || "";
-                widget.callback = (value) => {
-                    this.properties.text = value == null ? "" : value;
-                };
-            }
-            if (result && result.minWidth) {
-                this.size[0] = Math.max(this.size[0] || 0, result.minWidth);
-            }
-            if (result && result.minHeight) {
-                this.size[1] = Math.max(this.size[1] || 0, result.minHeight);
-            }
-        } else {
-            const widget = this.addWidget("string", "text", this.properties.text || "", () => {});
-            if (widget) {
-                widget.callback = (value) => {
-                    this.properties.text = value == null ? "" : value;
-                };
-            }
-        }
-    }
-
-    onConfigure() {
-        const widget = (this.widgets || []).find(function (w) {
-            return w && w.name === "text";
-        });
-        if (!widget) return;
-        if (this.properties.text == null) {
-            this.properties.text = widget.value == null ? "" : widget.value;
-        } else {
-            widget.value = this.properties.text;
-        }
-    }
-}
-
-WorkflowVersionNode.title = NODE_TITLE;
-WorkflowVersionNode.category = "Practical-Tools/FunctionSwitchNode";
 
 // 只有“从侧边栏打开”或“打开本地 JSON”才算新打开，切换标签不提醒。
 // 刷新页面等同于首次加载，会提醒。
@@ -436,7 +427,7 @@ async function checkWorkflowVersion() {
         if (!graph) return;
 
         const nodes = collectVersionNodesDeep(graph).filter(function (n) {
-            return n && n.type === NODE_TYPE;
+            return n && n.type === NODE_TYPE && nodeSwitchOn(n);
         });
         if (nodes.length === 0) return;
 
@@ -463,7 +454,7 @@ try {
         const latest = getLatestVersion();
         const graph = app.graph;
         const nodes = graph ? collectVersionNodesDeep(graph).filter(function (n) {
-            return n && n.type === NODE_TYPE;
+            return n && n.type === NODE_TYPE && nodeSwitchOn(n);
         }) : [];
         return {
             config: latest,
@@ -520,37 +511,6 @@ function installNewOpenTracking() {
 
 app.registerExtension({
     name: "Practical-Tools.WorkflowVersion",
-
-    beforeRegisterVueAppNodeDefs(defs) {
-        try {
-            for (const def of defs) {
-                if (def && def.name === NODE_TYPE) {
-                    def.display_name = NODE_TITLE;
-                }
-            }
-        } catch (e) { /* ignore */ }
-    },
-
-    afterLoadGraph() {
-        const isInitialLoad = initialPageLoad;
-        initialPageLoad = false;
-
-        // 刷新页面：第一次加载也检查
-        if (isInitialLoad) {
-            setTimeout(checkWorkflowVersion, 500);
-            return;
-        }
-
-        // 之后只有从侧边栏/本地文件新打开才检查；切换标签不检查
-        if (!consumeNewOpenIntent()) return;
-        setTimeout(checkWorkflowVersion, 500);
-    },
-
-    registerCustomNodes() {
-        LiteGraph.registerNodeType(NODE_TYPE, WorkflowVersionNode);
-        WorkflowVersionNode.category = "Practical-Tools/FunctionSwitchNode";
-        WorkflowVersionNode.title = NODE_TITLE;
-    },
 
     setup() {
         installNewOpenTracking();

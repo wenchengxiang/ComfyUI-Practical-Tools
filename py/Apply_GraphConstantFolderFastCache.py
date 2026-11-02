@@ -12,7 +12,9 @@ class wcx_Apply_GraphConstantFolderFastCache:
     @classmethod
     def INPUT_TYPES(cls):
         return {
-            "required": {},
+            "required": {
+                "开关": ("BOOLEAN", {"default": True, "label_on": "启用", "label_off": "禁用", "tooltip": "关闭后本节点功能不生效（等价于没有这个节点）"}),
+            },
         }
 
     FUNCTION = "execute"
@@ -21,7 +23,7 @@ class wcx_Apply_GraphConstantFolderFastCache:
     RETURN_TYPES = ()
     OUTPUT_NODE = True
 
-    def execute(self):
+    def execute(self, 开关=True):
         return {}
 
 

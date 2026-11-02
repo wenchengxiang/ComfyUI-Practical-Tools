@@ -48,7 +48,7 @@ function detectPluginBasePath() {
     return "/extensions/";
 }
 var PLUGIN_BASE = detectPluginBasePath();
-var EDITOR_URL = PLUGIN_BASE + "pose_editor/index.html?theme=dark";
+var EDITOR_URL = PLUGIN_BASE + "pose_editor.html?theme=dark";
 
 
 // ================================================================

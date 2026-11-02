@@ -68,7 +68,14 @@
       if (!Array.isArray(list)) return false;
       for (const n of list) {
         if (!n) continue;
-        if (n.type === TRIGGER_NODE_TYPE) return true;
+        if (n.type === TRIGGER_NODE_TYPE) {
+          // 节点上的“启用”开关是第一个 widget；旧工作流没有该值 -> 启用
+          const raw = n.widgets_values;
+          const on = !Array.isArray(raw) || raw.length === 0
+            ? true
+            : !(raw[0] === false || raw[0] === 0 || raw[0] === "false");
+          if (on) return true;
+        }
         if (n.subgraph) {
           if (seen.has(n.subgraph)) continue;
           seen.add(n.subgraph);

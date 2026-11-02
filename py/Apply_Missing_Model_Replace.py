@@ -15,7 +15,9 @@ class wcx_Apply_Missing_Model_Replace:
     @classmethod
     def INPUT_TYPES(cls):
         return {
-            "required": {},
+            "required": {
+                "开关": ("BOOLEAN", {"default": True, "label_on": "启用", "label_off": "禁用", "tooltip": "关闭后本节点功能不生效（等价于没有这个节点）"}),
+            },
         }
 
     FUNCTION = "execute"
@@ -24,7 +26,9 @@ class wcx_Apply_Missing_Model_Replace:
     RETURN_TYPES = ()
     OUTPUT_NODE = True
 
-    def execute(self):
+    def execute(self, 开关=True):
+        if not 开关:
+            return {}
         result = {
             "ui": {
                 "text": ["缺失模型自动替换：已启用\n加载工作流时将自动检测并替换缺失模型。"]

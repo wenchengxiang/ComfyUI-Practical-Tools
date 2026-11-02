@@ -1046,12 +1046,24 @@ def _fast_cache_self_test(cls, original) -> Tuple[bool, str]:
 		return False, f"self-test error: {e}"
 
 
+def _marker_enabled(node) -> bool:
+	"""标记节点的“启用”开关；旧工作流没有该字段时视为启用。"""
+	inputs = node.get("inputs") or {}
+	flag = inputs.get("开关", True)
+	if flag is False or flag == 0:
+		return False
+	if isinstance(flag, str) and flag.strip().lower() in ("false", "0", "off"):
+		return False
+	return True
+
+
 def _prompt_dict_has_marker(prompt) -> bool:
 	if not isinstance(prompt, dict):
 		return False
 	for node in prompt.values():
 		if isinstance(node, dict) and node.get("class_type") == _FAST_CACHE_MARKER_CLASS:
-			return True
+			if _marker_enabled(node):
+				return True
 	return False
 
 
