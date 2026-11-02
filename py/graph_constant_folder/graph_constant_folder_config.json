@@ -3,6 +3,7 @@
 	"DEBUG": 0,
 	"VERBOSE": 0,
 	"PRUNE": 1,
+	"BUS_FOLD": 1,
 	"LOG": 0,
 	"FAST_CACHE": 1,
 	"FAST_CACHE_AUTOCHECK": 1,

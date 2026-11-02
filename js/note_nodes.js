@@ -6,7 +6,11 @@
     if (document.getElementById(id)) return;
     const style = document.createElement("style");
     style.id = id;
-    style.textContent = ".pt-note-dom-hidden { display: none !important; }";
+    style.textContent =
+        ".pt-note-dom-hidden { display: none !important; }" +
+        // 链接悬停换成蓝色手形光标：系统光标无法改颜色，只能整张替换。
+        // url(...) 后两个数字是热点坐标（食指指尖），必须落在图片范围内。
+        '.comfy-markdown-content a:hover{cursor:url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAB+ElEQVR4nGNkwAKERNRCGBgYMhkYGL4wMDBMf/fm1g4GegIhEbW9/nP+/wdhIRG1jbS0iwmHuD2MwcrG6ickosZGbwcwwxi/f/1mePfm1i96O4BugIUYRUIiaksZGBhAoTCdgYHhLwi/e3PrAt0cYNtxMwpEH65QZ9DT10749/cfw5UrDJUMDAzg3EGJY5hIVJ/AH7mOQTBmA4idqaOjeR6EhUTUquniAF4+XmSuHMghMMfQxQF4HCPNQCsHsLKxwtliYiLk2kPYAUI4ChuLpitwtlQKokQ2qDpDHQcIiagFComo7WJlY/0pJKLWTstSD6sDGBgYMm07brqCfJqWFlfBxMz8k94OYINxritVM1i3XmNQUJSjqwOm355ohyIom76bfg549+bWyhfPX9b/Wg8u7MgFvyjKBe/e3Go6efLsRJUbDeSa84IiB4DAuze3CuYvWD43mH01AxngCAOVCqLp5ZUtJBnwfU04WB9VHPDuza2zP3/8yH2/JIAozb5MyxjOnLkAajNSLQQY3r25NeXKlesdD6c549Vo/mYSQwUktMj2PQgw4pIQElFLZufgmBMfFwYuH2DA9ec8hjXrtjBcunh1CgMDQ9O7N7de08QBICAkosbJwMCQxsDAAGqm8zMwMIAsAzU+loGiC6xoFIyCUTAKGCgDAMrjmu+p5fx0AAAAAElFTkSuQmCC") 6 0,pointer !important;}';
     document.head.appendChild(style);
 })();
 

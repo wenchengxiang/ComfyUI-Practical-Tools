@@ -389,17 +389,43 @@ const findRec = (k) => {
 };
 
 // 找"运行"按钮（优先文字"运行"，其次 aria/标题含"运行"）
+// 轻量防抖：弹窗开关会触发成百上千次 DOM 变更，观察器必须合并执行
+function __ptDebounce(fn, ms) {
+    let t = 0;
+    return function () {
+        clearTimeout(t);
+        const args = arguments;
+        t = setTimeout(function () { fn.apply(null, args); }, ms);
+    };
+}
+
+// 运行/取消按钮缓存：整页 button 扫描在几千节点的图上很贵，只查一次
+let __ptRunBtnCache = null;
+let __ptCancelBtnCache = null;
+
 function findRunButton() {
-    const btns = [...document.querySelectorAll("button")];
-    return btns.find(b => (b.innerText || "").trim() === "运行")
-        || btns.find(b => ((b.getAttribute("aria-label") || "") + (b.title || "")).includes("运行"));
+    if (__ptRunBtnCache && __ptRunBtnCache.isConnected) return __ptRunBtnCache;
+    __ptRunBtnCache = null;
+    const btns = document.querySelectorAll("button");
+    for (const b of btns) {
+        if ((b.innerText || "").trim() === "运行") { __ptRunBtnCache = b; break; }
+    }
+    if (!__ptRunBtnCache) {
+        for (const b of btns) {
+            if (((b.getAttribute("aria-label") || "") + (b.title || "")).includes("运行")) {
+                __ptRunBtnCache = b;
+                break;
+            }
+        }
+    }
+    return __ptRunBtnCache;
 }
 
 // 找"取消当前任务"（红X）按钮
 function findCancelButton() {
-    return [...document.querySelectorAll("button")].find(b =>
-        (b.getAttribute("aria-label") || "").includes("取消当前任务")
-    );
+    if (__ptCancelBtnCache && __ptCancelBtnCache.isConnected) return __ptCancelBtnCache;
+    __ptCancelBtnCache = document.querySelector('button[aria-label*="取消当前任务"]') || null;
+    return __ptCancelBtnCache;
 }
 
 // 读取"运行"按钮背景色（找不到时回退蓝色）——整体进度条与之保持一致
@@ -1000,7 +1026,7 @@ function jumpToRunNode(key) {
 
 // v78：找当前 graph 中标题为"运行等待区"的子图节点
 // v104：读取等待区配置（run_indicator_waiting_room_config.js），缺失字段用默认值兜底
-function getRoomConfig() {
+function getRoomConfig(isAuto) {
     const cfg = (typeof window !== "undefined" && window.PT_WAITING_ROOM_CONFIG) || {};
     const def = {
         line1: { text: "大型工作流运行期间，请在此处等待可加快渲染。", fontSize: 42, lineHeight: 1, fontColor: "#ffffff", fontFamily: "Arial", fontWeight: "normal", textAlign: "center", backgroundColor: "transparent", borderRadius: 0, padding: 0 },
@@ -1011,7 +1037,13 @@ function getRoomConfig() {
         for (const k in d) o[k] = (u && u[k] !== undefined) ? u[k] : d[k];
         return o;
     }
-    return { line1: merge(def.line1, cfg.line1), line2: merge(def.line2, cfg.line2) };
+    const l1 = merge(def.line1, cfg.line1);
+    const l2 = merge(def.line2, cfg.line2);
+    if (isAuto) {
+        // 自动进入：只覆盖配置里写了的字段（autoLine1 / autoLine2），其余沿用 line1 / line2
+        return { line1: merge(l1, cfg.autoLine1), line2: merge(l2, cfg.autoLine2) };
+    }
+    return { line1: l1, line2: l2 };
 }
 
 // v104：将配置应用到 TextLabel 节点
@@ -1152,6 +1184,30 @@ function hookFitAllExcludeRoom() {
 // 绕过了 v90 的 canvas.fitViewToSelectionAnimated hook，导致等待区把取景拉远。
 // 此处 hook ds.fitToBounds：当 bounds 包含远处区域（等待区在 +20000）且当前
 // graph 有等待区节点时，重新计算排除等待区后的 bounds。正常 fit selection 不受影响。
+// 排除等待区后的主图包围盒；没有可用节点时返回 null
+function waitingRoomExcludingBounds(g) {
+    try {
+        const items = (g && g._nodes || []).filter(function (n) {
+            return n && n.pos && !(n.subgraph && isWaitingRoomNode(n));
+        });
+        if (!items.length) return null;
+        var minX = 1e9, minY = 1e9, maxX = -1e9, maxY = -1e9;
+        for (var i = 0; i < items.length; i++) {
+            var n = items[i];
+            var w = (n.size && n.size[0]) || 200;
+            var h = (n.size && n.size[1]) || 100;
+            if (n.pos[0] < minX) minX = n.pos[0];
+            if (n.pos[1] < minY) minY = n.pos[1];
+            if (n.pos[0] + w > maxX) maxX = n.pos[0] + w;
+            if (n.pos[1] + h > maxY) maxY = n.pos[1] + h;
+        }
+        var pad = 100;
+        return [minX - pad, minY - pad,
+            Math.max(1, (maxX - minX) + pad * 2),
+            Math.max(1, (maxY - minY) + pad * 2)];
+    } catch (e) { return null; }
+}
+
 function hookDsFitToBoundsExcludeRoom() {
     try {
         const ds = app.canvas && app.canvas.ds;
@@ -1160,6 +1216,13 @@ function hookDsFitToBoundsExcludeRoom() {
         const orig = ds.fitToBounds.bind(ds);
         ds.fitToBounds = function (e, opts) {
             try {
+                // v146：无参调用（加载工作流时的自动取景）原本完全跳过排除逻辑，
+                // 会把 +20000 处的等待区一起算进去，于是先闪一个缩得极小的"全视图"。
+                if ((!e || !Array.isArray(e)) && __ptSuppressRoomRestore === true) {
+                    const g0 = app.canvas && app.canvas.graph;
+                    const hb = g0 ? waitingRoomExcludingBounds(g0) : null;
+                    if (hb) e = hb;
+                }
                 const g = app.canvas && app.canvas.graph;
                 if (g && e && Array.isArray(e) && e.length >= 4) {
                     const hasRoom = (g._nodes || []).some(function (n) {
@@ -1217,7 +1280,7 @@ function initDropzoneEnlarge() {
             }
         });
     };
-    const mo = new MutationObserver(() => enlarge());
+    const mo = new MutationObserver(__ptDebounce(enlarge, 200));
     mo.observe(document.body, { childList: true, subtree: true });
     enlarge();
 
@@ -1420,6 +1483,64 @@ function inWaitingRoom() {
         const g = app.canvas && app.canvas.graph;
         return !!(g && (g.__ptWR === true || (g.name && String(g.name).trim() === "运行等待区")));
     } catch (e) { return false; }
+}
+
+// v145：ComfyUI 会把"上次停在等待区子图"这个状态随工作流一起恢复，导致切回该工作流时
+// 先钻进等待区、再被 v98 拉回顶层（肉眼可见的"进又出"）。
+// 在 setGraph 入口拦一道：只在"加载工作流"的时间窗内，把指向等待区子图的切换改回顶层。
+// 时间窗外（双击节点进等待区、点茶杯）不受影响。
+let __ptSuppressRoomRestore = false;
+
+function isWaitingRoomGraph(g) {
+    try {
+        return !!(g && (g.__ptWR === true || (g.name && String(g.name).trim() === "运行等待区")));
+    } catch (e) { return false; }
+}
+
+function hookSetGraphRefuseRoom() {
+    const canvas = app.canvas;
+    if (!canvas || typeof canvas.setGraph !== "function") {
+        setTimeout(hookSetGraphRefuseRoom, 300);
+        return;
+    }
+    if (canvas.__ptSetGraphHooked) return;
+    const orig = canvas.setGraph;
+    canvas.setGraph = function (graph) {
+        let substituted = false;
+        try {
+            if (__ptSuppressRoomRestore === true && graph !== app.graph && isWaitingRoomGraph(graph)) {
+                graph = app.graph;
+                substituted = true;
+            }
+        } catch (e) { /* ignore */ }
+        const restoreView = function () {
+            try {
+                const ds = canvas.ds;
+                if (!ds) return;
+                const wr = (typeof findWaitingRoomNode === "function") ? findWaitingRoomNode() : null;
+                const hv = wr && wr.properties && wr.properties.pt_home_view;
+                if (hv && Array.isArray(hv.offset) && typeof hv.scale === "number") {
+                    ds.offset = hv.offset.slice();
+                    ds.scale = hv.scale;
+                } else if (typeof fitHomeExcludingRoom === "function") {
+                    fitHomeExcludingRoom(app.graph);
+                }
+                if (typeof canvas.setDirty === "function") canvas.setDirty(true, true);
+            } catch (e) { /* ignore */ }
+        };
+        const result = orig.call(this, graph);
+        if (substituted) {
+            // 拦下来之后必须自己把主图视口摆正：
+            // ComfyUI 恢复的是"等待区视角"的 offset/scale，直接套到主图上位置就偏了。
+            // 先同步摆一次，保证第一帧画出来就是对的；再补几次，压掉官方随后的延迟取景。
+            restoreView();
+            setTimeout(restoreView, 0);
+            setTimeout(restoreView, 80);
+            setTimeout(restoreView, 250);
+        }
+        return result;
+    };
+    canvas.__ptSetGraphHooked = true;
 }
 // v83：等待区子图 -> 它所属的工作流主图（优先运行时标记；刷新后按外层 SubgraphNode 反查）
 function homeGraphOfRoom(sg) {
@@ -2009,6 +2130,14 @@ function updateCupBtnState() {
         } else {
             btn.style.boxShadow = "none";
         }
+        // v143：tooltip 跟随状态 —— 区内提示退出，区外提示进入
+        const tipLabel = document.querySelector('.pt-cup-tip [data-slot="tooltip-content"] > div');
+        if (tipLabel) {
+            const want = inRoom
+                ? "点击退出运行等待区"
+                : "点击进入运行等待区，加快运行渲染";
+            if (tipLabel.textContent !== want) tipLabel.textContent = want;
+        }
     } catch (e) { /* ignore */ }
 }
 // v142：等待区进入前视图持久化。刷新后 __ptHomeView 会丢，但 localStorage 不会。
@@ -2044,7 +2173,71 @@ function loadWaitingRoomHomeView(roomNode) {
     return null;
 }
 
-function toggleWaitingRoom() {
+let autoRoomEntered = false; // 本次运行是否由我们自动切进了等待区
+let autoRoomHome = null;    // 本次运行所属的工作流主图（用来判断"是不是我们那个等待区"）
+let autoRoomTimer = 0;      // 延迟进入等待区的定时器（运行在延迟内结束则取消）
+let autoRoomArmed = false;  // 本次运行是否启用了自动等待区（决定结束时是否退回区外）
+
+// 读取 Apply Auto Waiting Room 的配置：没放节点返回 null，放了返回延迟毫秒数
+// 优先看提交的 prompt（运行期间可能已切换工作流，画布不再是提交时的那个图）
+function getAutoRoomConfig() {
+    try {
+        const pd = promptData;
+        if (pd && typeof pd === "object") {
+            const inner = (pd.prompt && typeof pd.prompt === "object") ? pd.prompt : pd;
+            for (const k in inner) {
+                const n = inner[k];
+                if (!n || n.class_type !== "wcx_Apply_AutoWaitingRoom") continue;
+                let secs = 2.0;
+                try {
+                    const raw = n.inputs && (n.inputs["延迟秒数"] !== undefined ? n.inputs["延迟秒数"] : n.inputs["delay"]);
+                    const v = Number(raw);
+                    if (Number.isFinite(v)) secs = v;
+                } catch (e2) { /* ignore */ }
+                return Math.max(0, Math.min(60, secs)) * 1000;
+            }
+            if (inner === pd) return null;
+        }
+    } catch (e) { /* ignore */ }
+    try {
+        let found = null;
+        const walk = (g) => {
+            if (!g || found !== null) return;
+            for (const n of (g._nodes || [])) {
+                if (!n) continue;
+                if (n.type === "wcx_Apply_AutoWaitingRoom" || n.comfyClass === "wcx_Apply_AutoWaitingRoom") {
+                    const wv = n.widgets_values;
+                    const v = Number(Array.isArray(wv) ? wv[0] : wv);
+                    found = Number.isFinite(v) ? Math.max(0, Math.min(60, v)) * 1000 : 2000;
+                    return;
+                }
+                if (n.subgraph) walk(n.subgraph);
+            }
+        };
+        walk(app.graph);
+        return found;
+    } catch (e) { return null; }
+}
+
+// 执行结束后退出等待区：只退出"本次运行这个工作流"的等待区
+function scheduleAutoRoomExit() {
+    if (autoRoomTimer) { clearTimeout(autoRoomTimer); autoRoomTimer = 0; }
+    if (!autoRoomArmed) return;   // 本次运行没启用自动等待区 -> 不动
+    autoRoomArmed = false;
+    autoRoomEntered = false;
+    const home = autoRoomHome;
+    autoRoomHome = null;
+    setTimeout(function () {
+        try {
+            if (!inWaitingRoom()) return;                       // 用户已手动退出
+            if (!home) return;                                  // 没记住，保守不动
+            if (homeGraphOfRoom(app.canvas.graph) !== home) return; // 在别的工作流的等待区
+            toggleWaitingRoom();
+        } catch (e) { /* ignore */ }
+    }, 400);
+}
+
+function toggleWaitingRoom(opts) {
     try {
         const canvas = app.canvas;
         if (!canvas) return;
@@ -2133,7 +2326,7 @@ function toggleWaitingRoom() {
                     }
                 }
                 // v104：放两行 Text Label——没有则按配置创建，已有则按配置更新（方案 B）
-                const roomCfg = getRoomConfig();
+                const roomCfg = getRoomConfig(!!(opts && opts.auto));
                 const existingLabels = (sg._nodes || []).filter(n => n && n.type === "wcx_TextLabel");
                 if (existingLabels.length === 0) {
                     try {
@@ -2328,6 +2521,7 @@ app.registerExtension({
 
     beforeLoadGraph() {
         try { saveRootViewNow(true); } catch (e) {}
+        __ptSuppressRoomRestore = true; // v145：加载期间禁止把画布切进等待区子图
     },
 
     afterLoadGraph() {
@@ -2335,6 +2529,8 @@ app.registerExtension({
         __ptPersistentRoomGuardUserInteracted = false;
         // 等 activeWorkflow/path 和官方相机设置完成
         setTimeout(handleInitialView, 150);
+        // v145：加载结束后放开拦截（留一点余量给延迟恢复）
+        setTimeout(function () { __ptSuppressRoomRestore = false; }, 800);
     },
 
     async setup() {
@@ -2348,7 +2544,11 @@ app.registerExtension({
         bindSubgraphOpen(); // v86：进入等待区时由官方事件记录准确父图/父视图
         hookFitAllExcludeRoom(); // v90：官方"适应全部"排除等待区
         hookDsFitToBoundsExcludeRoom(); // v110：加载工作流时 ds.fitToBounds 也排除等待区
-        bindWorkflowTabClick(); // v101：点击工作流 tab 前先拉回顶层，从源头消除等待区视觉残留
+        hookSetGraphRefuseRoom(); // v145：加载期间拒绝把画布恢复进等待区子图
+        // v144：停用。它在点击标签时同步 setGraph 拉回顶层，会在切换前先重绘一次旧主图，
+        // 大工作流上肉眼可见（"先回到等待区外，再切换"）。
+        // "切回来不要停在等待区"由 bindWorkflowSwitchForceTop(v98) 在切换后处理，这里多余。
+        // bindWorkflowTabClick();
         bindWorkflowSwitchForceTop(); // v91：切换工作流后强制目标显示节点区
         // v143：记录/恢复主图视图；刷新后优先回到刷新前视图。
         installRootViewTracking();
@@ -2423,39 +2623,6 @@ app.registerExtension({
             `;
             document.head.appendChild(st);
         }
-        // 修复：PrimeReact 激活标签蓝色指示线可能显示为白色（页面加载/切换标签时），持续监听修复
-        window.__ptFixTabBlueLine = function () {
-            try {
-                if (document.body.classList.contains("pt-in-waiting-room")) return;
-                // 新版 TabsTrigger 用 data-state 控制背景，不再有蓝色 border-bottom，
-                // 这里只清理旧版遗留的内联样式。
-                const triggers = document.querySelectorAll('[data-slot="tabs-trigger"]');
-                if (triggers.length) {
-                    triggers.forEach(function (tab) {
-                        if (tab.style.borderBottom) tab.style.borderBottom = "";
-                    });
-                    return;
-                }
-                // 旧版 PrimeVue 兼容逻辑
-                document.querySelectorAll(".p-togglebutton:not(.p-togglebutton-checked)").forEach(function (tab) {
-                    if (tab.style.borderBottom && tab.style.borderBottom.indexOf("96, 165, 250") !== -1) {
-                        tab.style.borderBottom = "";
-                    }
-                });
-                const tabs = document.querySelectorAll(".p-togglebutton.p-togglebutton-checked");
-                tabs.forEach(function (tab) {
-                    const cs = window.getComputedStyle(tab);
-                    if (cs.borderBottomColor === "rgb(255, 255, 255)") {
-                        tab.style.borderBottom = "1px solid rgb(96, 165, 250)";
-                    }
-                });
-            } catch (e) { /* ignore */ }
-        };
-        // 监听 body 变化（标签容器可能还没渲染，用 body 兜底）
-        new MutationObserver(window.__ptFixTabBlueLine).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["class"] });
-        // 初始多次检查（覆盖 PrimeReact 初始化的不同时间点）
-        [300, 600, 1000, 1500, 2000].forEach(function (t) { setTimeout(window.__ptFixTabBlueLine, t); });
-        setInterval(function () { if (!document.hidden) window.__ptFixTabBlueLine(); }, 1000); // 观察器已覆盖大部分变化，1 秒兜底
         // 全局拦截已激活工作流标签的点击：阻止 PrimeReact 重复点击取消激活（toggle off）的 bug
         document.addEventListener("click", function (e) {
             try {
@@ -2520,23 +2687,19 @@ app.registerExtension({
                         startTabObserver();
                     } else {
                         stopTabObserver();
-                        if (typeof window.__ptFixTabBlueLine === "function") {
-                            setTimeout(window.__ptFixTabBlueLine, 50);
-                            setTimeout(window.__ptFixTabBlueLine, 200);
-                        }
                     }
                 }
             } catch (e) { /* ignore */ }
         }, 200);
         // 积极挂载：立即尝试 + MutationObserver 持续监听（锚点出现立即挂载，插槽被移除立即重挂）
         mountToToolbar();
-        const _mountObserver = new MutationObserver(function () {
+        const _mountObserver = new MutationObserver(__ptDebounce(function () {
             try {
                 if (!document.getElementById("pt-run-indicator")) {
                     mountToToolbar();
                 }
             } catch (e) { /* ignore */ }
-        });
+        }, 200));
         _mountObserver.observe(document.body, { childList: true, subtree: true });
         setInterval(function () { if (!document.hidden) mountToToolbar(); }, 5000); // 低频兜底（极端情况）
         setInterval(() => { if (document.hidden) return; try { updateCupBtnState(); } catch (e) {} }, 500); // v83：跨工作流即时刷新茶杯蓝框
@@ -2633,6 +2796,9 @@ return null;
         // v122：运行次数统计
         let submitCount = 0;     // 提交的工作流数量（多工作流时忽略循环，只看提交数）
         let currentSubmitIndex = 0; // 当前执行到第几个工作流
+        let batchStartMs = 0;       // 本批次的起点（第一次提交时刻），用于显示总用时
+        let nodeStartMs = 0;        // 当前显示节点的开始时刻
+        let runningNodeActive = false; // 是否正在显示某个节点的计时
         let nodeExecCount = {};  // 每个节点的执行次数（单工作流循环时用）
         let maxNodeExecCount = 0; // 最大节点执行次数
         let currentLoopTotal = 0; // v123：当前工作流的循环总数（0=非循环）
@@ -2855,12 +3021,44 @@ return null;
             const bar = totalBar();
             if (bar) bar.style.background = color;
         };
+        // 时长格式化：省略高位，例 0s / 5s / 3m12s / 1h5m3s
+        const fmtDur = (secs) => {
+            const total = Math.max(0, Math.round(secs));
+            const h = Math.floor(total / 3600);
+            const m = Math.floor((total % 3600) / 60);
+            const s = total % 60;
+            if (h > 0) return h + "h" + m + "m" + s + "s";
+            if (m > 0) return m + "m" + s + "s";
+            return s + "s";
+        };
+        // 节点计时：跑满 NODE_TIMER_DELAY 秒才显示，格式 "节点名-3s"（用 - 连接）
+        const NODE_TIMER_DELAY = 1;
+        const stripNodeTimer = (t) => String(t || "").replace(/-\d+h\d+m\d+s$|-\d+m\d+s$|-\d+s$/, "");
+        const nodeSuffix = () => {
+            if (!runningNodeActive || !nodeStartMs) return "";
+            const secs = (Date.now() - nodeStartMs) / 1000;
+            if (secs < NODE_TIMER_DELAY) return "";
+            return "-" + fmtDur(secs);
+        };
+        const tickNodeTimer = () => {
+            if (!runningNodeActive) return;
+            const el = document.getElementById("pt-run-label");
+            if (!el) return;
+            const next = stripNodeTimer(el.textContent) + nodeSuffix();
+            if (next !== el.textContent) el.textContent = next;
+        };
         const show = (text, align) => {
             const el = label();
             if (el) {
-                el.textContent = text;
+                el.textContent = runningNodeActive ? stripNodeTimer(text) + nodeSuffix() : text;
                 el.style.justifyContent = align === "center" ? "center" : "flex-start";
             }
+        };
+        setInterval(tickNodeTimer, 250); // 节点用时：内容变化时才写 DOM
+        const fmtBatchDuration = (ms) => fmtDur(ms / 1000);
+        const doneLabel = () => {
+            if (!batchStartMs) return "完成";
+            return "完成（" + fmtBatchDuration(Date.now() - batchStartMs) + "）";
         };
         // hex 颜色转 "r,g,b"（供 rgba(var) 闪烁描边用），失败回退进度条蓝
         const hexToRgb = (hex) => {
@@ -2897,6 +3095,8 @@ return null;
             // 但下一个工作流可能已在运行（currentKey !== null），此时不应重置，
             // 否则会把正在运行的节点名覆盖为"实时运行节点"。
             if (currentKey !== null) return;
+        batchStartMs = 0; // 批次结束
+        runningNodeActive = false;
             lastPct = 0;
             stopSimProgress(); // v108：停止模拟进度
             runTopGraph = null;
@@ -2973,6 +3173,8 @@ return null;
                 // v122：在调用原函数前设置标志位和计数，确保 orig 内部调用 fetch 时不会重复计数
                 inQueuePrompt = true;
                 submitCount++;
+                // 批次第一笔提交时重置起点，避免上一批的计时在完成提示期间被继承
+                if (submitCount === 1 || !batchStartMs) batchStartMs = Date.now();
                 // v122：实时更新计数显示
                 updateCountDisplay();
                 const res = await orig.apply(this, args);
@@ -3178,6 +3380,9 @@ return null;
             }
             // v122：保存纯节点名（不含计数），供后续提交新工作流时动态更新显示
             currentShownText = shownText;
+        // 运行到这个节点，计时从 0 开始
+        nodeStartMs = Date.now();
+        runningNodeActive = true;
             // v123：计数显示
             // 循环工作流（currentLoopTotal > 0）+ 单提交："循环总数/循环数 • 节点名"
             // 循环工作流 + 多提交："总数/当前序号/循环数 • 节点名"
@@ -3304,6 +3509,30 @@ return null;
 
         // ---- 状态事件 ----
         api.addEventListener("execution_start", () => {
+            // 自动进入等待区：只有放了 Apply Auto Waiting Room 的工作流才做
+            autoRoomEntered = false;
+            try {
+                // 家图：若运行开始时已在等待区里，取该等待区所属的工作流主图
+                autoRoomHome = inWaitingRoom()
+                    ? homeGraphOfRoom(app.canvas && app.canvas.graph)
+                    : ((app.canvas && app.canvas.graph) ? app.canvas.graph : null);
+                autoRoomEntered = false;
+                if (autoRoomTimer) { clearTimeout(autoRoomTimer); autoRoomTimer = 0; }
+                const __autoDelay = getAutoRoomConfig();
+                autoRoomArmed = (__autoDelay !== null);
+                if (__autoDelay !== null && !inWaitingRoom()) {
+                    // 延迟进入：运行在延迟内结束就取消，全程不进等待区
+                    autoRoomTimer = setTimeout(function () {
+                        autoRoomTimer = 0;
+                        try {
+                            if (inWaitingRoom()) return;                                   // 用户已手动进入
+                            if (autoRoomHome && app.canvas && app.canvas.graph !== autoRoomHome) return; // 用户已切走
+                            toggleWaitingRoom({ auto: true });
+                            autoRoomEntered = true;
+                        } catch (e) { /* ignore */ }
+                    }, __autoDelay);
+                }
+            } catch (e) { /* ignore */ }
             doneCount = 0;
 // v122：重置节点执行次数统计（单工作流循环）
             nodeExecCount = {};
@@ -3465,6 +3694,7 @@ return null;
         });
 
         api.addEventListener("execution_success", () => {
+            runningNodeActive = false;
             stopSimProgress(); // v108：停止模拟进度
             currentKey = null; // v121：确保reset能执行，避免"完成"一直显示
             // v137：提交完成，停止虚拟进度计时，总进度直接到100%
@@ -3483,29 +3713,33 @@ return null;
                     const running = (q && q.queue_running && q.queue_running.length) || 0;
                     const pending = (q && q.queue_pending && q.queue_pending.length) || 0;
                     if (running + pending === 0) {
-                        // 全部跑完，显示"完成"
-                        show("完成", "center");
+                        // 全部跑完，显示"完成（批次总用时）"
+                        show(doneLabel(), "center");
                         submitCount = 0;
                         currentSubmitIndex = 0;
+                        scheduleAutoRoomExit();
                         successTimer = setTimeout(reset, 1500);
                     } else {
                         // 还有下一个工作流，不显示"完成"，直接重置准备切换
                     }
                 }).catch(function() {
-                    // 查询失败时兜底显示"完成"
-                    show("完成", "center");
+                    // 查询失败时兜底显示"完成（批次总用时）"
+                    show(doneLabel(), "center");
                     successTimer = setTimeout(reset, 1500);
                 });
             } catch (e) {
-                show("完成", "center");
+                show(doneLabel(), "center");
                 successTimer = setTimeout(reset, 1500);
             }
         });
 
         // 中断（手动取消）不改变进度条颜色——只显示"已中断"后复位
         api.addEventListener("execution_interrupted", () => {
+            runningNodeActive = false;
+            scheduleAutoRoomExit();
             stopSimProgress(); // v108：停止模拟进度
             virtualProgressStartTime = 0; // v139：中断时停止虚拟总进度
+            batchStartMs = 0; // 中断不带用时
             loopVirtualStartTime = 0; // v139：中断时停止循环虚拟进度
             currentKey = null; // v139：确保reset能执行
             setInit(false);
@@ -3528,8 +3762,11 @@ return null;
 
         // 出错 -> 红X按钮同款红 + "执行出错"
         api.addEventListener("execution_error", () => {
+            runningNodeActive = false;
+            scheduleAutoRoomExit();
             stopSimProgress(); // v121：报错后停止模拟进度
             virtualProgressStartTime = 0; // v139：报错时停止虚拟总进度
+            batchStartMs = 0; // 出错不带用时
             loopVirtualStartTime = 0; // v139：报错时停止循环虚拟进度
             currentKey = null; // v121：确保reset能执行
             setInit(false);

@@ -70,6 +70,7 @@ _ENABLED = _cfg_flag(_CFG, "ENABLED", default=True)
 _DEBUG = _cfg_flag(_CFG, "DEBUG", default=False)
 _VERBOSE = _cfg_flag(_CFG, "VERBOSE", default=False)
 _PRUNE = _cfg_flag(_CFG, "PRUNE", default=False)
+_BUS_FOLD = _cfg_flag(_CFG, "BUS_FOLD", default=False)
 _LOG = _cfg_flag(_CFG, "LOG", default=True)
 _FAST_CACHE = _cfg_flag(_CFG, "FAST_CACHE", default=False)
 
@@ -433,7 +434,7 @@ def _resolve_constant(prompt: Dict[str, Any], value: Any, want: str, cache: Dict
 			src = prompt.get(str(bus[0]), None)
 			if isinstance(src, dict) and _canonical_class_type(str(src.get("class_type", ""))) in ("wcx_BusIn", "WCXBusIn"):
 				src_inputs = _get_inputs(src)
-				res = _resolve_constant(prompt, src_inputs.get(f"输入_{out_idx + 1}", None), want, cache, depth - 1)
+				res = _resolve_constant(prompt, _bus_input_links(src_inputs).get(int(out_idx), None), want, cache, depth - 1)
 				if res is not None:
 					cache[key] = res
 					return res
@@ -615,6 +616,8 @@ def _constant_fold_switches(prompt: Dict[str, Any], skip_ids: Optional[Set[str]]
 			kind = canonical_class_type
 		elif canonical_class_type == "LazySwitchKJ":
 			kind = "LazySwitch"
+		elif canonical_class_type == "wcx_LinkSwitch":
+			kind = "LinkGate"
 		elif canonical_class_type in ("SparknightLazyFallbackSwitch", "SparknightLazyFallbackSwitchStatic"):
 			kind = "LazyFallbackSwitch"
 
@@ -643,6 +646,14 @@ def _constant_fold_switches(prompt: Dict[str, Any], skip_ids: Optional[Set[str]]
 
 			if replacement is _NOT_FOLDABLE and _VERBOSE:
 				not_foldable.append(f"not foldable: {class_type} #{node_id} (decision input not constant)")
+
+		elif kind == "LinkGate":
+			# wcx_LinkSwitch：单输入闸门。开关为常量时：True 直通，False 输出 None
+			_decision = _resolve_constant(prompt, inputs.get("开关", None), "bool", cache)
+			if isinstance(_decision, bool):
+				replacement = inputs.get("输入", None) if _decision else None
+			if replacement is _NOT_FOLDABLE and _VERBOSE:
+				not_foldable.append(f"not foldable: {class_type} #{node_id} (开关 is not a constant)")
 
 		elif kind in ("LazyIndexSwitch", "IndexSwitchLike"):
 			index_min = _index_min_for_class(canonical_class_type)
@@ -1126,6 +1137,329 @@ def _install_fast_cache() -> bool:
 	return True
 
 
+def _log_bus_report(prompt) -> None:
+	# 只读诊断：BusIn/BusOut 的连线与下游引用，用来判断能否做 bus 折叠。不修改任何数据。
+	if not isinstance(prompt, dict) or not prompt:
+		return
+
+	bus_in = {}
+	bus_out = {}
+	for nid, node in prompt.items():
+		if not isinstance(node, dict):
+			continue
+		ct = node.get("class_type", None)
+		if ct == "wcx_BusIn":
+			bus_in[str(nid)] = node
+		elif ct == "wcx_BusOut":
+			bus_out[str(nid)] = node
+
+	if not bus_in and not bus_out:
+		return
+
+	# 统计"谁引用了 BusOut 的第几个输出"
+	consumers = {}
+	for nid, node in prompt.items():
+		if not isinstance(node, dict):
+			continue
+		inputs = node.get("inputs", None)
+		if not isinstance(inputs, dict):
+			continue
+		for key, v in inputs.items():
+			if not _is_link(v):
+				continue
+			src = str(v[0])
+			if src in bus_out:
+				consumers.setdefault((src, int(v[1])), []).append(f"{nid}.{key}")
+
+	prefixed = any(":" in str(k) for k in prompt.keys())
+	_log_info(f"bus-report: BusIn={len(bus_in)} BusOut={len(bus_out)} prefixed_ids={int(prefixed)}")
+
+	for oid in sorted(bus_out.keys()):
+		onode = bus_out[oid]
+		inputs = onode.get("inputs", None) or {}
+		link = None
+		for v in inputs.values():
+			if _is_link(v):
+				link = v
+			break
+		used = sorted({slot for (o, slot) in consumers.keys() if o == oid})
+		used_ch = list(used)                       # 端口名 value_0 起，槽位号即端口号
+		_log_info(f"  BusOut {oid}: link={link} used_slots={used} used_channels={used_ch}")
+		if link is None:
+			_log_info(f"  BusOut {oid}: 没有连接总线束 -> 跳过")
+			continue
+		src_id = str(link[0])
+		inode = bus_in.get(src_id, None)
+		if inode is None:
+			ct = prompt.get(src_id, None)
+			ct = ct.get("class_type", None) if isinstance(ct, dict) else None
+			_log_info(f"  BusOut {oid}: 上游 {src_id} 不是 BusIn (class={ct}) -> 跳过")
+			continue
+		iinputs = inode.get("inputs", None) or {}
+		connected = _bus_input_links(iinputs)
+		_log_info(f"  BusIn {src_id}: 已接 value={sorted(connected.keys())}")
+		missing = [c for c in used_ch if c not in connected]
+		if missing:
+			_log_info(f"  -> 不可折叠：被使用但未接线的通道 {missing}")
+		elif used_ch:
+			srcs = [connected[c] for c in used_ch]
+			_log_info(f"  -> 可折叠：输出{used_ch} 可直连到 {srcs}")
+		else:
+			_log_info("  -> 没有任何输出被使用")
+
+
+def _link_slots_for(value, target_id: str) -> List[int]:
+	# 返回 value 里所有指向 target_id 的槽位号（支持嵌套 list / dict）
+	slots: List[int] = []
+
+	def walk(v):
+		if _is_link(v):
+			if str(v[0]) == target_id:
+				slots.append(int(v[1]))
+			return
+		if isinstance(v, list):
+			for item in v:
+				walk(item)
+		elif isinstance(v, dict):
+			for item in v.values():
+				walk(item)
+
+	walk(value)
+	return slots
+
+
+def _rewrite_links_to(value, target_id: str, slot_map: Dict[int, Any]):
+	# 把指向 target_id 的 link 换成 slot_map 里的源 link；返回 (新值, 是否改变)
+	if _is_link(value):
+		if str(value[0]) == target_id:
+			src = slot_map.get(int(value[1]), None)
+			if src is not None:
+				return list(src), True
+		return value, False
+	if isinstance(value, list):
+		changed = False
+		out = []
+		for item in value:
+			nv, ch = _rewrite_links_to(item, target_id, slot_map)
+			out.append(nv)
+			if ch:
+				changed = True
+		return (out if changed else value), changed
+	if isinstance(value, dict):
+		changed = False
+		out = {}
+		for k, item in value.items():
+			nv, ch = _rewrite_links_to(item, target_id, slot_map)
+			out[k] = nv
+			if ch:
+				changed = True
+		return (out if changed else value), changed
+	return value, False
+
+
+def _bus_slot_of_key(key: str):
+	# 从端口名推回槽位号（0 起）。兼容 value_N（0 起）与旧版 输入_N（1 起）。
+	key = str(key or "")
+	try:
+		if key.startswith("value_"):
+			return int(key.split("_")[-1])
+		if key.startswith("输入_"):
+			return int(key.split("_")[-1]) - 1
+	except Exception:
+		return None
+	return None
+
+
+def _bus_input_links(iinputs) -> Dict[int, Any]:
+	# BusIn 的 槽位 -> 连线，兼容新旧端口名；value_N 优先
+	out: Dict[int, Any] = {}
+	if not isinstance(iinputs, dict):
+		return out
+	keys = sorted(iinputs.keys(), key=lambda k: (0 if str(k).startswith("value_") else 1, str(k)))
+	for k in keys:
+		slot = _bus_slot_of_key(k)
+		if slot is None or slot < 0 or slot in out:
+			continue
+		v = iinputs.get(k, None)
+		if _is_link(v):
+			out[slot] = v
+	return out
+
+def _bus_refs_to(prompt: Dict[str, Any], target_id: str, exclude=()) -> List[str]:
+	# 返回 prompt 里所有引用了 target_id 的节点 id
+	refs: List[str] = []
+	for nid, node in prompt.items():
+		if str(nid) in exclude or not isinstance(node, dict):
+			continue
+		ninputs = node.get("inputs", None)
+		if not isinstance(ninputs, dict):
+			continue
+		if _link_slots_for(ninputs, target_id):
+			refs.append(str(nid))
+	return refs
+
+
+# 恒等直通节点：输入原样输出，可以安全穿过
+_BUS_PASS_RE = re.compile(
+	r"(?i)^wcx_(any|image|mask|latent|clip|model|vae|conditioning|text|int|float|bool|audio)(passthrough|rerouter)$"
+)
+
+
+def _resolve_bus_in(prompt: Dict[str, Any], oid: str):
+	# 从 BusOut 的总线束输入出发，穿过恒等直通节点，找到真正的 BusIn
+	# 返回 (BusIn id 或 None, 经过的直通节点列表, 失败原因或 None)
+	onode = prompt.get(oid, None)
+	if not isinstance(onode, dict):
+		return None, [], f"{oid} 不在 prompt 中"
+	inputs = onode.get("inputs", None) or {}
+	link = None
+	for v in inputs.values():
+		if _is_link(v):
+			link = v
+		break
+	if link is None:
+		return None, [], None
+
+	path: List[str] = []
+	cur = link
+	for _hop in range(8):
+		nid = str(cur[0])
+		node = prompt.get(nid, None)
+		if not isinstance(node, dict):
+			return None, path, f"总线束上游 {nid} 在 prompt 中不存在"
+		ct = node.get("class_type", None)
+		if ct == "wcx_BusIn":
+			return nid, path, None
+		if not (ct and _BUS_PASS_RE.match(str(ct))):
+			return None, path, f"总线束上游 {nid} 是 {ct}，不是 BusIn"
+		ninputs = node.get("inputs", None) or {}
+		links = [v for v in ninputs.values() if _is_link(v)]
+		if len(links) != 1:
+			return None, path, f"直通节点 {nid} ({ct}) 有 {len(links)} 条输入连线，无法确定上游"
+		path.append(nid)
+		cur = links[0]
+	return None, path, "直通链超过 8 层"
+
+
+def _fold_bus(prompt: Dict[str, Any]):
+	# BusIn -> BusOut 折叠成直连；返回 (折叠对数, 跳过说明列表)
+	folded = 0
+	skipped: List[str] = []
+	if not isinstance(prompt, dict) or not prompt:
+		return folded, skipped
+
+	for _pass in range(8):
+		bus_in_ids = {str(k) for k, v in prompt.items() if isinstance(v, dict) and v.get("class_type") == "wcx_BusIn"}
+		bus_out_ids = [str(k) for k, v in prompt.items() if isinstance(v, dict) and v.get("class_type") == "wcx_BusOut"]
+		if not bus_out_ids:
+			break
+
+		did = False
+		for oid in bus_out_ids:
+			if oid not in prompt:
+				continue
+			iid, via, reason = _resolve_bus_in(prompt, oid)
+			if reason:
+				skipped.append(f"{oid}: {reason}")
+				continue
+			if iid is None:
+				continue
+			if iid not in bus_in_ids:
+				continue
+			inode = prompt.get(iid, None)
+			if not isinstance(inode, dict):
+				continue
+			iinputs = inode.get("inputs", None) or {}
+
+			# 收集所有引用（含不可达节点，否则删掉 bus 会留下悬空引用）
+			slot_refs: Dict[int, List[str]] = {}
+			for nid, node in prompt.items():
+				if str(nid) in (oid, iid) or str(nid) in via or not isinstance(node, dict):
+					continue
+				ninputs = node.get("inputs", None)
+				if not isinstance(ninputs, dict):
+					continue
+				for _key, v in ninputs.items():
+					for slot in _link_slots_for(v, oid):
+						slot_refs.setdefault(slot, []).append(str(nid))
+
+			slot_map: Dict[int, Any] = {}
+			missing: List[int] = []
+			_links = _bus_input_links(iinputs)
+			for slot in sorted(slot_refs.keys()):
+				src = _links.get(slot, None)
+				if _is_link(src):
+					slot_map[slot] = src
+				else:
+					missing.append(slot)
+			if missing:
+				skipped.append(f"{oid} <- {iid}: 被引用的通道 {missing} 未接线")
+				continue
+
+			for nid, node in prompt.items():
+				if str(nid) in (oid, iid) or str(nid) in via or not isinstance(node, dict):
+					continue
+				ninputs = node.get("inputs", None)
+				if not isinstance(ninputs, dict):
+					continue
+				nv, changed = _rewrite_links_to(ninputs, oid, slot_map)
+				if changed:
+					node["inputs"] = nv
+
+			# 改写之后再算可达性：只有能走到输出节点的通道才真的会执行
+			reachable: Set[str] = set()
+			try:
+				_outs = _collect_outputs(prompt)
+				if _outs:
+					reachable = _walk_upstream(prompt, _outs)
+			except Exception:
+				reachable = set()
+
+			kept = sorted(slot_map.keys())
+			live: List[int] = []
+			dead: List[int] = []
+			for _ch in kept:
+				_cids = slot_refs.get(_ch, [])
+				if (not reachable) or any(c in reachable for c in _cids):
+					live.append(_ch)
+				else:
+					dead.append(_ch)
+
+			unreferenced: List[Any] = []
+			for _slot, _v in _links.items():
+				if _slot not in kept:
+					unreferenced.append((_slot, _v))
+			unreferenced.sort(key=lambda item: item[0])
+
+			head = f"bus fold: {iid} -> {oid} 直连"
+			if via:
+				head += f"（经直通 {via}）"
+			parts = [head]
+			if live:
+				parts.append(f"会执行通道 {live}")
+			if dead:
+				_srcs = {c: _links.get(c, None) for c in dead}
+				_txt = ", ".join(f"value_{c}<-{_srcs[c]}" for c in dead)
+				parts.append(f"引用但下游不可达(不执行) {_txt}")
+			if unreferenced:
+				_txt2 = ", ".join(f"value_{c}<-{s}" for c, s in unreferenced)
+				parts.append(f"无引用(不执行) {_txt2}")
+			_log_info("；".join(parts))
+
+			prompt.pop(oid, None)
+			# 一个 BusIn 可能被多个 BusOut 共用：确认没人再引用它才删除
+			if not _bus_refs_to(prompt, iid):
+				prompt.pop(iid, None)
+			folded += 1
+			did = True
+
+		if not did:
+			break
+
+	if skipped:
+		skipped = sorted(set(skipped))
+	return folded, skipped
+
 def _fold_prompt(json_data: Dict[str, Any]) -> Dict[str, Any]:
 	if not _ENABLED:
 		return json_data
@@ -1154,6 +1488,13 @@ def _fold_prompt(json_data: Dict[str, Any]) -> Dict[str, Any]:
 		changed_nodes.update(_apply_replacements(prompt, replacements))
 		folded_ids.update(replacements.keys())
 		total_fold_count += fold_count
+
+	if _BUS_FOLD:
+		bus_folded, bus_skipped = _fold_bus(prompt)
+		if bus_folded:
+			total_fold_count += bus_folded
+		for _msg in bus_skipped:
+			_log_info(f"bus skip: {_msg}")
 
 	if _VERBOSE:
 		for msg in not_foldable:
@@ -1191,6 +1532,8 @@ def _fold_prompt(json_data: Dict[str, Any]) -> Dict[str, Any]:
 def _handler(json_data: Dict[str, Any]) -> Dict[str, Any]:
 	if not _ENABLED:
 		return json_data
+	if _LOG:
+		_log_bus_report(json_data.get("prompt", None) if isinstance(json_data, dict) else None)
 	if _REQUIRE_MARKER:
 		prompt = json_data.get("prompt", None) if isinstance(json_data, dict) else None
 		if not _prompt_dict_has_marker(prompt):

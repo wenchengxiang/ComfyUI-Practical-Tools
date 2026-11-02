@@ -41,7 +41,7 @@
 window.PT_WAITING_ROOM_CONFIG = {
     // 第一行（大字）
     line1: {
-        text: "  大型工作流运行期间 在此等待可加快渲染  ",
+        text: "  此区域为运行等待区 在此等待可加快渲染  ",
         fontSize: 42,
         lineHeight: 1.0,
         fontColor: "#ffffff",
@@ -54,7 +54,7 @@ window.PT_WAITING_ROOM_CONFIG = {
     },
     // 第二行（小字）
     line2: {
-        text: "  提醒：再次点茶杯或点击任意工作流 即可退出运行等待区  ",
+        text: "  提醒：点击茶杯或点击任意工作流 即可退出运行等待区  ",
         fontSize: 18,
         lineHeight: 1.0,
         fontColor: "#ffffff50",
@@ -64,5 +64,17 @@ window.PT_WAITING_ROOM_CONFIG = {
         backgroundColor: "#00000050",
         borderRadius: 15,
         padding: 15
+    },
+
+    // ===== 自动进入时的文案（仅由 Apply Auto Waiting Room 触发时使用）=====
+    // 手动点茶杯进入，用的是上面的 line1 / line2，与这里无关。
+    // 这里只需要写你想改的字段，没写的（字号、字体、圆角、背景…）自动沿用 line1 / line2。
+    // 例如只想换文字：autoLine1: { text: "自动进入中…" }
+    // 不想区分自动和手动：把下面 autoLine1、autoLine2 两块整段删掉即可。
+    autoLine1: {
+        text: "  此区域为运行等待区 在此等待可加快渲染  "
+    },
+    autoLine2: {
+        text: "  提醒：运行结束后会自动退出等待区 / 点击任意工作流可提前退出等待区 "
     }
 };

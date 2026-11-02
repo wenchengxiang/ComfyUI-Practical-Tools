@@ -13,5 +13,5 @@
 // =====================================================================
 
 window.PT_NOTE_CONFIG = {
-    protectKeyword: "微信: [`FixedSeed`](https://www.bilibili.com/opus/1245570696577286151?spm_id_from=333.1387.0.0)&nbsp;&nbsp;&nbsp;哔哩: [`FixedSeed`](https://space.bilibili.com/3690973297118095)&nbsp;&nbsp;&nbsp;QQ群: [`HelloSeeds`](https://qm.qq.com/q/lrY1KXZck)"
+    protectKeyword: "哔哩: [`FixedSeed`](https://space.bilibili.com/3690973297118095)&nbsp;&nbsp;&nbsp;QQ群: [`HelloSeeds`](https://qm.qq.com/q/lrY1KXZck)<br>"
 };
